@@ -48,6 +48,11 @@ coverage.xml
 # Environments
 .env
 .venv
+
+# Model files (too large for GitHub)
+models/weights/*.onnx
+models/weights/*.pth
+models/weights/*.bin
 env/
 venv/
 ENV/
