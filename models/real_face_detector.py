@@ -4,7 +4,13 @@ import insightface
 from insightface.app import FaceAnalysis
 import json
 import os
+from pathlib import Path
 from typing import List, Dict, Tuple, Optional
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+EMBEDDINGS_DIR = PROJECT_ROOT / "data" / "embeddings"
+PROFILES_PATH = PROJECT_ROOT / "data" / "suspects" / "metadata" / "suspect_profiles.json"
+
 
 class RealFaceDetector:
     """실제 InsightFace AI 모델을 사용한 얼굴 인식 시스템"""
@@ -21,56 +27,82 @@ class RealFaceDetector:
         self.suspect_embeddings = self._load_suspect_embeddings()
         self.suspect_profiles = self._load_suspect_profiles()
         self.suspect_profile_lookup = self._build_profile_lookup()
+        self._merge_profile_metadata()
         
         print("Real AI Face Detection System initialized successfully!")
         print(f"Loaded {len(self.suspect_embeddings)} suspect profiles")
     
     def _load_suspect_embeddings(self) -> Dict:
-        """용의자 임베딩 데이터베이스 로드"""
-        # 프로젝트 루트의 data/embeddings 경로
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        embeddings_path = os.path.join(project_root, 'data', 'embeddings', 'all_embeddings.json')
+        """용의자 임베딩 데이터베이스 로드 (모든 임베딩 활용)"""
+        embeddings_db: Dict[str, Dict] = {}
+
+        def _normalize_vector(vector: List[float]) -> np.ndarray:
+            arr = np.array(vector, dtype=np.float32)
+            norm = np.linalg.norm(arr)
+            if norm == 0:
+                return arr
+            return arr / norm
+
+        def _upsert_person(person_id: Optional[str], name: str, info: Dict, vectors: List[List[float]]):
+            if not person_id or not vectors:
+                return
+            normalized_vectors = [_normalize_vector(vec) for vec in vectors]
+            person_type = 'criminal' if (info or {}).get('is_criminal') else (info or {}).get('role', 'unknown')
+            if person_type == 'unknown' and 'criminal' in (person_id or '').lower():
+                person_type = 'criminal'
+            elif person_type == 'unknown' and 'normal' in (person_id or '').lower():
+                person_type = 'normal'
+            if person_id not in embeddings_db:
+                embeddings_db[person_id] = {
+                    'name': name or person_id,
+                    'info': info or {},
+                    'embeddings': normalized_vectors,
+                    'type': person_type
+                }
+            else:
+                embeddings_db[person_id]['embeddings'].extend(normalized_vectors)
+                if name:
+                    embeddings_db[person_id]['name'] = name
+                if info:
+                    embeddings_db[person_id]['info'].update(info)
+                if person_type != 'unknown':
+                    embeddings_db[person_id]['type'] = person_type
+
         try:
-            with open(embeddings_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-                # all_embeddings.json 구조에 맞게 파싱
-                embeddings_db = {}
-                
-                if 'persons' in data:
-                    for person in data['persons']:
-                        person_id = person.get('person_id')
-                        embeddings = person.get('embeddings', {})
-                        
-                        # 첫 번째 임베딩을 대표 임베딩으로 사용
-                        if embeddings:
-                            first_embedding_key = list(embeddings.keys())[0]
-                            first_embedding = embeddings[first_embedding_key]
-                            embeddings_db[person_id] = {
-                                'name': person.get('name', '알 수 없음'),
-                                'embedding': np.array(first_embedding),
-                                'info': person.get('info', {})
-                            }
-                
-                # criminal_embeddings.json도 별도로 로드
-                criminal_path = os.path.join(project_root, 'data', 'embeddings', 'criminal_embeddings.json')
-                if os.path.exists(criminal_path):
-                    with open(criminal_path, 'r', encoding='utf-8') as f:
-                        criminal_data = json.load(f)
-                        if 'embeddings' in criminal_data:
-                            # 첫 번째 criminal 임베딩 추가
-                            first_key = list(criminal_data['embeddings'].keys())[0]
-                            first_embedding = criminal_data['embeddings'][first_key]
-                            embeddings_db['criminal'] = {
-                                'name': criminal_data.get('name', '범죄용의자'),
-                                'embedding': np.array(first_embedding),
-                                'info': criminal_data.get('info', {})
-                            }
-                
-                return embeddings_db
-                
+            all_embeddings_path = EMBEDDINGS_DIR / 'all_embeddings.json'
+            if all_embeddings_path.exists():
+                with open(all_embeddings_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for person in data.get('persons', []):
+                    person_id = person.get('person_id')
+                    embeddings_map = person.get('embeddings', {})
+                    _upsert_person(
+                        person_id,
+                        person.get('name', person_id),
+                        person.get('info', {}),
+                        list(embeddings_map.values())
+                    )
+
+            # 추가 개별 임베딩 파일 (criminal, normal 등) 병합
+            for emb_file in EMBEDDINGS_DIR.glob('*_embeddings.json'):
+                if emb_file.name == 'all_embeddings.json':
+                    continue
+                with open(emb_file, 'r', encoding='utf-8') as f:
+                    personal_data = json.load(f)
+                person_id = personal_data.get('person_id') or emb_file.stem.replace('_embeddings', '')
+                embeddings_map = personal_data.get('embeddings', {})
+                _upsert_person(
+                    person_id,
+                    personal_data.get('name', person_id),
+                    personal_data.get('info', {}),
+                    list(embeddings_map.values())
+                )
+
+            print(f"Loaded {len(embeddings_db)} suspect embeddings from {EMBEDDINGS_DIR}")
+            return embeddings_db
+
         except FileNotFoundError:
-            print(f"Warning: Embeddings file not found at {embeddings_path}")
+            print(f"Warning: Embeddings directory not found at {EMBEDDINGS_DIR}")
             return {}
         except Exception as e:
             print(f"Error loading embeddings: {e}")
@@ -78,11 +110,8 @@ class RealFaceDetector:
     
     def _load_suspect_profiles(self) -> Dict:
         """용의자 프로필 정보 로드"""
-        # 프로젝트 루트의 data/suspects/metadata 경로
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        profiles_path = os.path.join(project_root, 'data', 'suspects', 'metadata', 'suspect_profiles.json')
         try:
-            with open(profiles_path, 'r', encoding='utf-8') as f:
+            with open(PROFILES_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 # suspects 배열을 id로 인덱싱
                 profiles = {}
@@ -90,7 +119,7 @@ class RealFaceDetector:
                     profiles[suspect['id']] = suspect
                 return profiles
         except FileNotFoundError:
-            print(f"Warning: Profiles file not found at {profiles_path}")
+            print(f"Warning: Profiles file not found at {PROFILES_PATH}")
             return {}
         except Exception as e:
             print(f"Error loading profiles: {e}")
@@ -111,6 +140,16 @@ class RealFaceDetector:
         except Exception as e:
             print(f"Error building suspect profile lookup: {e}")
         return lookup
+
+    def _merge_profile_metadata(self) -> None:
+        """임베딩 정보에 프로필 메타데이터 병합"""
+        if not self.suspect_embeddings or not self.suspect_profiles:
+            return
+        for suspect_id, profile in self.suspect_profiles.items():
+            if suspect_id in self.suspect_embeddings:
+                entry = self.suspect_embeddings[suspect_id]
+                entry.setdefault('info', {}).update(profile)
+                entry['type'] = 'criminal' if profile.get('is_criminal') else 'normal'
     def get_suspect_profile(self, suspect_id: str) -> Optional[Dict]:
         """특정 용의자 프로필 정보 반환"""
         return self.suspect_profiles.get(suspect_id)
@@ -223,22 +262,17 @@ class RealFaceDetector:
         threshold = 0.6  # 유사도 임계값
         
         try:
+            face_norm = face_embedding / np.linalg.norm(face_embedding)
             for person_id, person_data in self.suspect_embeddings.items():
-                if 'embedding' in person_data:
-                    stored_embedding = person_data['embedding']
-                    
-                    # 임베딩 정규화
-                    face_norm = face_embedding / np.linalg.norm(face_embedding)
+                for stored_embedding in person_data.get('embeddings', []):
                     stored_norm = stored_embedding / np.linalg.norm(stored_embedding)
                     
-                    # 코사인 유사도 계산
                     similarity = np.dot(face_norm, stored_norm)
                     
-                    # 최고 유사도 갱신
                     if similarity > best_similarity and similarity >= threshold:
                         best_similarity = similarity
                         best_match = person_id
-                        print(f"🎯 매칭 후보: {person_id} ({person_data['name']}) - 유사도: {similarity:.3f}")
+                        print(f"🎯 매칭 후보: {person_id} ({person_data.get('name')}) - 유사도: {similarity:.3f}")
             
             if best_match:
                 key = best_match.lower() if isinstance(best_match, str) else best_match

@@ -42,39 +42,18 @@ def load_suspect_embeddings():
     global suspect_embeddings
     try:
         logger.info("용의자 임베딩 데이터 로딩 중...")
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'embeddings')
-        
-        # Criminal 임베딩 로딩
-        criminal_path = os.path.join(data_dir, 'criminal_embeddings.json')
-        if os.path.exists(criminal_path):
-            with open(criminal_path, 'r', encoding='utf-8') as f:
-                criminal_data = json.load(f)
-                suspect_embeddings['criminal'] = {
-                    'name': criminal_data['name'],
-                    'info': criminal_data['info'],
-                    'embeddings': list(criminal_data['embeddings'].values()),
-                    'type': 'criminal'
+        if face_detector and face_detector.suspect_embeddings:
+            suspect_embeddings = {
+                suspect_id: {
+                    'name': data.get('name', suspect_id),
+                    'info': data.get('info', {}),
+                    'embeddings': [emb.tolist() for emb in data.get('embeddings', [])],
+                    'type': data.get('type', 'unknown')
                 }
-                logger.info(f"✅ 범죄자 임베딩 로딩 완료: {criminal_data['name']}")
-        
-        # Normal 임베딩들 로딩
-        normal_files = ['normal01_embeddings.json', 'normal02_embeddings.json', 'normal03_embeddings.json']
-        for normal_file in normal_files:
-            normal_path = os.path.join(data_dir, normal_file)
-            if os.path.exists(normal_path):
-                with open(normal_path, 'r', encoding='utf-8') as f:
-                    normal_data = json.load(f)
-                    person_id = normal_data['person_id']
-                    suspect_embeddings[person_id] = {
-                        'name': normal_data['name'],
-                        'info': normal_data['info'],
-                        'embeddings': list(normal_data['embeddings'].values()),
-                        'type': 'normal'
-                    }
-                    logger.info(f"✅ 일반인 임베딩 로딩 완료: {normal_data['name']}")
-        
-        logger.info(f"📊 총 {len(suspect_embeddings)}명의 임베딩 데이터 로딩 완료")
-        return True
+                for suspect_id, data in face_detector.suspect_embeddings.items()
+            }
+            logger.info(f"📊 총 {len(suspect_embeddings)}명의 임베딩 데이터 동기화 완료")
+            return True
         
     except Exception as e:
         logger.error(f"❌ 임베딩 데이터 로딩 실패: {str(e)}")
