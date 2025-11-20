@@ -1,0 +1,2382 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV 용의자 식별 서비스</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .alert-border {
+            border: 3px solid #ef4444 !important;
+            box-shadow: 0 0 20px #ef4444 !important;
+            animation: alertPulse 1s infinite;
+        }
+        
+        @keyframes alertPulse {
+            0%, 100% { box-shadow: 0 0 20px #ef4444; }
+            50% { box-shadow: 0 0 30px #ef4444, 0 0 40px #ef4444; }
+        }
+        
+        .detection-overlay {
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .video-container {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .bounding-box {
+            position: absolute;
+            border: 3px solid;
+            pointer-events: none;
+            border-radius: 4px;
+        }
+        
+        .bounding-box.criminal {
+            border-color: #FF0000;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            animation: criminalPulse 1s infinite;
+        }
+        
+        .bounding-box.normal {
+            border-color: #00FF00;
+            box-shadow: 0 0 8px rgba(0, 255, 0, 0.3);
+        }
+        
+        .bounding-box.unknown {
+            border-color: #FFFF00;
+            box-shadow: 0 0 8px rgba(255, 255, 0, 0.3);
+        }
+        
+        @keyframes criminalPulse {
+            0%, 100% { 
+                border-color: #FF0000;
+                box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            }
+            50% { 
+                border-color: #FF6666;
+                box-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+            }
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #10b981;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .detection-info {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            border-left: 4px solid #ef4444;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .detection-info h4 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .detection-info .info-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .detection-info .info-label {
+            font-weight: 500;
+            color: #374151;
+            min-width: 80px;
+        }
+        
+        .detection-info .info-value {
+            color: #1f2937;
+        }
+        
+        .upload-container {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+        
+        .dashboard-header {
+            background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%);
+        }
+        
+        /* 디버깅 모드 스타일 */
+        #modelStatusOverlay, #detectionResultOverlay {
+            backdrop-filter: blur(5px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        #debugConsole {
+            backdrop-filter: blur(10px);
+            font-family: 'Courier New', monospace;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #22c55e;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+    <!-- 업로드 화면 (기본으로 표시) -->
+    <div id="uploadScreen" class="min-h-screen flex items-center justify-center">
+        <div class="upload-container max-w-md w-full mx-auto p-8 rounded-2xl shadow-2xl">
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-blue-800 mb-2">CCTV 영상 분석기</h1>
+                <p class="text-gray-600">용의자 식별 시스템</p>
+            </div>
+            
+            <div class="space-y-6">
+                <div class="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+                    <svg class="mx-auto h-12 w-12 text-blue-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <div class="cursor-pointer" onclick="document.getElementById('videoFile').click()">
+                        <div class="text-lg font-medium text-blue-700 mb-2">
+                            CCTV 영상 파일 선택
+                        </div>
+                        <input type="file" id="videoFile" accept="video/*" class="hidden" onchange="
+                            if (this.files && this.files[0]) {
+                                const file = this.files[0];
+                                window.selectedFile = file;
+                                
+                                const fileNameEl = document.getElementById('fileName');
+                                const fileInfoEl = document.getElementById('fileInfo');
+                                const analyzeBtn = document.getElementById('analyzeBtn');
+                                
+                                if (fileNameEl) fileNameEl.textContent = file.name;
+                                if (fileInfoEl) fileInfoEl.classList.remove('hidden');
+                                if (analyzeBtn) {
+                                    analyzeBtn.disabled = false;
+                                    analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                
+                                alert('파일 선택 완료: ' + file.name);
+                            }
+                        ">
+                        <p class="text-sm text-gray-500">MP4, AVI, MOV 등 지원</p>
+                        <p class="text-xs text-blue-600 mt-2">📁 클릭하여 파일 선택</p>
+                    </div>
+                </div>
+                
+                <div id="fileInfo" class="hidden bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p class="text-green-700 text-sm font-medium">선택된 파일: <span id="fileName"></span></p>
+                </div>
+                
+                <button id="analyzeBtn" onclick="
+                    if (!window.selectedFile) {
+                        alert('눈먼저 파일을 선택해주세요!');
+                        return;
+                    }
+                    
+                    // 용의자 선택 화면으로 이동
+                    document.getElementById('uploadScreen').classList.add('hidden');
+                    document.getElementById('suspectSelectScreen').classList.remove('hidden');
+                " class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg text-lg font-semibold hover:bg-blue-700 transform hover:scale-105 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    분석 시작
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 용의자 선택 화면 (기본으로 숨김) -->
+    <div id="suspectSelectScreen" class="hidden min-h-screen bg-gray-50">
+        <div class="container mx-auto py-8">
+            <div class="max-w-4xl mx-auto">
+                <!-- 헤더 -->
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">용의자 데이터베이스</h1>
+                    <p class="text-gray-600">감지할 절도범을 선택해주세요 (4명 중 1명이 절도범입니다)</p>
+                </div>
+
+                <!-- 용의자 카드들 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <!-- 용의자 1: 홍길동 (절도범) -->
+                    <div class="suspect-card bg-white rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-all duration-200" 
+                         data-suspect-id="1" data-is-thief="true" onclick="
+                            // 모든 카드 선택 해제
+                            document.querySelectorAll('.suspect-card').forEach(card => {
+                                card.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                                card.style.transform = 'scale(1)';
+                            });
+                            // 현재 카드 선택
+                            this.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                            this.style.transform = 'scale(1.05)';
+                            // 선택 정보 저장
+                            window.selectedSuspect = { id: '1', name: '황윤하', isThief: true };
+                            // 선택 정보 표시 및 버튼 활성화
+                            const nameEl = document.getElementById('selectedSuspectName');
+                            const infoEl = document.getElementById('selectedSuspectInfo');
+                            const btnEl = document.getElementById('proceedToDashboard');
+                            if (nameEl) nameEl.textContent = '황윤하 (범죄자)';
+                            if (infoEl) infoEl.classList.remove('hidden');
+                            if (btnEl) {
+                                btnEl.disabled = false;
+                                btnEl.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        ">
+                        <div class="aspect-w-3 aspect-h-4 bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center">
+                            <div class="text-6xl">👤</div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-lg text-gray-800">황윤하</h3>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <p><span class="font-medium">나이:</span> 37세</p>
+                                <p><span class="font-medium">성별:</span> 여성</p>
+                                <p><span class="font-medium">특징:</span> 앞머리</p>
+                                <p><span class="font-medium">직업:</span> 백수</p>
+                                <p><span class="font-medium text-red-600">전과:</span> 절도 5회</p>
+                            </div>
+                            <div class="mt-3">
+                                <span class="inline-block bg-red-100 text-red-800 text-xs font-semibold px-2 py-1 rounded-full">위험도: 높음</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 용의자 2: 김철수 (일반인) -->
+                    <div class="suspect-card bg-white rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-all duration-200" 
+                         data-suspect-id="2" data-is-thief="false" onclick="
+                            document.querySelectorAll('.suspect-card').forEach(card => {
+                                card.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                                card.style.transform = 'scale(1)';
+                            });
+                            this.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                            this.style.transform = 'scale(1.05)';
+                            window.selectedSuspect = { id: '2', name: '윤정아', isThief: false };
+                            const nameEl2 = document.getElementById('selectedSuspectName');
+                            const infoEl2 = document.getElementById('selectedSuspectInfo');
+                            const btnEl2 = document.getElementById('proceedToDashboard');
+                            if (nameEl2) nameEl2.textContent = '윤정아 (일반인)';
+                            if (infoEl2) infoEl2.classList.remove('hidden');
+                            if (btnEl2) {
+                                btnEl2.disabled = false;
+                                btnEl2.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        ">
+                        <div class="aspect-w-3 aspect-h-4 bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+                            <div class="text-6xl">👤</div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-lg text-gray-800">윤정아</h3>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <p><span class="font-medium">나이:</span> 54세</p>
+                                <p><span class="font-medium">성별:</span> 여성</p>
+                                <p><span class="font-medium">특징:</span> 다듬지 않은 눈썹</p>
+                                <p><span class="font-medium">직업:</span> 쉐프</p>
+                                <p><span class="font-medium text-green-600">전과:</span>새치기 23회</p>
+                            </div>
+                            <div class="mt-3">
+                                <span class="inline-block bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">위험도: 낮음</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 용의자 3: 박영희 (일반인) -->
+                    <div class="suspect-card bg-white rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-all duration-200" 
+                         data-suspect-id="3" data-is-thief="false" onclick="
+                            document.querySelectorAll('.suspect-card').forEach(card => {
+                                card.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                                card.style.transform = 'scale(1)';
+                            });
+                            this.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                            this.style.transform = 'scale(1.05)';
+                            window.selectedSuspect = { id: '3', name: '신종우', isThief: false };
+                            const nameEl3 = document.getElementById('selectedSuspectName');
+                            const infoEl3 = document.getElementById('selectedSuspectInfo');
+                            const btnEl3 = document.getElementById('proceedToDashboard');
+                            if (nameEl3) nameEl3.textContent = '신종우 (일반인)';
+                            if (infoEl3) infoEl3.classList.remove('hidden');
+                            if (btnEl3) {
+                                btnEl3.disabled = false;
+                                btnEl3.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        ">
+                        <div class="aspect-w-3 aspect-h-4 bg-gradient-to-br from-purple-100 to-purple-200 flex items-center justify-center">
+                            <div class="text-6xl">👤</div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-lg text-gray-800">신종우</h3>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <p><span class="font-medium">나이:</span> 28세</p>
+                                <p><span class="font-medium">성별:</span> 남성</p>
+                                <p><span class="font-medium">특징:</span> 짧은 머리</p>
+                                <p><span class="font-medium">직업:</span> 간호사</p>
+                                <p><span class="font-medium text-green-600">전과:</span> 골목길 무단횡단</p>
+                            </div>
+                            <div class="mt-3">
+                                <span class="inline-block bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">위험도: 낮음</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 용의자 4: 이지선 (일반인) -->
+                    <div class="suspect-card bg-white rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-all duration-200" 
+                         data-suspect-id="4" data-is-thief="false" onclick="
+                            document.querySelectorAll('.suspect-card').forEach(card => {
+                                card.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                                card.style.transform = 'scale(1)';
+                            });
+                            this.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                            this.style.transform = 'scale(1.05)';
+                            window.selectedSuspect = { id: '4', name: '이지선', isThief: false };
+                            const nameEl4 = document.getElementById('selectedSuspectName');
+                            const infoEl4 = document.getElementById('selectedSuspectInfo');
+                            const btnEl4 = document.getElementById('proceedToDashboard');
+                            if (nameEl4) nameEl4.textContent = '이지선 (일반인)';
+                            if (infoEl4) infoEl4.classList.remove('hidden');
+                            if (btnEl4) {
+                                btnEl4.disabled = false;
+                                btnEl4.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        ">
+                        <div class="aspect-w-3 aspect-h-4 bg-gradient-to-br from-yellow-100 to-yellow-200 flex items-center justify-center">
+                            <div class="text-6xl">👤</div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-lg text-gray-800">이지선</h3>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <p><span class="font-medium">나이:</span> 39세</p>
+                                <p><span class="font-medium">성별:</span> 여성</p>
+                                <p><span class="font-medium">특징:</span> 흑발 긴머리</p>
+                                <p><span class="font-medium">직업:</span> 운동선수 </p>
+                                <p><span class="font-medium text-green-600">전과:</span> 밥도둑 </p>
+                            </div>
+                            <div class="mt-3">
+                                <span class="inline-block bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">위험도: 낮음</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 선택된 용의자 정보 -->
+                <div id="selectedSuspectInfo" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <h4 class="font-bold text-blue-800 mb-2">선택된 용의자:</h4>
+                    <p id="selectedSuspectName" class="text-blue-700"></p>
+                </div>
+
+                <!-- 진행 버튼 -->
+                <div class="text-center">
+                    <button id="proceedToDashboard" onclick="
+                        if (!window.selectedSuspect) {
+                            alert('먼저 용의자를 선택해주세요!');
+                            return;
+                        }
+                        if (!window.selectedFile) {
+                            alert('먼저 비디오 파일을 선택해주세요!');
+                            return;
+                        }
+                        
+                        // 대시보드로 이동
+                        document.getElementById('suspectSelectScreen').classList.add('hidden');
+                        document.getElementById('dashboardScreen').classList.remove('hidden');
+                        
+                        // 화면 전환 후 비디오 로딩
+                        setTimeout(() => {
+                            console.log('Starting video loading process...');
+                            console.log('Selected file:', window.selectedFile.name, window.selectedFile.type);
+                            
+                            const mainVideo = document.getElementById('mainVideo');
+                            const videoSource = document.getElementById('videoSource');
+                            
+                            if (!mainVideo) {
+                                console.error('Main video element not found');
+                                return;
+                            }
+                            
+                            if (!videoSource) {
+                                console.error('Video source element not found');
+                                return;
+                            }
+                            
+                            console.log('Video elements found, creating object URL...');
+                            
+                            try {
+                                const url = objectURL.createObjectURL(window.selectedFile);
+                                console.log('Object URL created:', url);
+                                
+                                videoSource.src = url;
+                                mainVideo.load();
+                                
+                                // 비디오 로드 이벤트 처리
+                                mainVideo.addEventListener('loadeddata', () => {
+                                    console.log('Video data loaded successfully');
+                                    mainVideo.play().then(() => {
+                                        console.log('Video playback started');
+                                        
+                                        // AI 감지 토글 활성화
+                                        const detectionToggle = document.getElementById('detectionFilter');
+                                        if (detectionToggle) {
+                                            console.log('Enabling AI detection...');
+                                            detectionToggle.checked = true;
+                                            detectionToggle.dispatchEvent(new Event('change'));
+                                        } else {
+                                            console.error('Detection filter element not found');
+                                        }
+                                    }).catch(err => {
+                                        console.error('Video play error:', err);
+                                        mainVideo.controls = true;
+                                    });
+                                }, { once: true });
+                                
+                                mainVideo.addEventListener('error', (e) => {
+                                    console.error('Video load error:', e, mainVideo.error);
+                                    alert('비디오를 로드할 수 없습니다. 파일 형식을 확인해주세요.');
+                                });
+                                
+                            } catch (error) {
+                                console.error('Error creating object URL:', error);
+                                alert('비디오 파일을 로드하는 중 오류가 발생했습니다.');
+                            }
+                        }, 100);
+                    " class="bg-blue-600 text-white py-3 px-8 rounded-lg text-lg font-semibold hover:bg-blue-700 transform hover:scale-105 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        CCTV 모니터링 시작
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 대시보드 화면 (기본으로 숨김) -->
+    <div id="dashboardScreen" class="hidden min-h-screen">
+        <!-- 헤더 -->
+        <header class="dashboard-header text-white p-4 shadow-lg">
+            <div class="container mx-auto">
+                <h1 class="text-2xl font-bold">A 편의점 CCTV (정문입구)</h1>
+                <p class="text-blue-100 text-sm">실시간 모니터링 시스템</p>
+            </div>
+        </header>
+
+        <!-- 메인 컨텐츠 -->
+        <div class="container mx-auto p-4">
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
+                
+                <!-- 메인 영역 (70% 너비) -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-lg p-4">
+                    <div class="h-full flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-semibold text-gray-800">실시간 영상</h2>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+                                <span class="text-sm text-gray-600">LIVE</span>
+                            </div>
+                        </div>
+                        
+                        <div class="flex-1 bg-black rounded-lg overflow-hidden video-container relative">
+                            <video id="mainVideo" 
+                                   class="w-full h-full object-contain" 
+                                   controls 
+                                   preload="metadata">
+                                <source id="videoSource" src="" type="video/mp4">
+                                브라우저에서 비디오를 지원하지 않습니다.
+                            </video>
+                            
+                            <!-- 모델 작동 상태 오버레이 -->
+                            <div id="modelStatusOverlay" class="absolute top-4 left-4 bg-black bg-opacity-75 text-white p-3 rounded-lg text-sm z-20 hidden">
+                                <div class="flex items-center mb-2">
+                                    <div id="modelStatusDot" class="w-3 h-3 bg-red-500 rounded-full mr-2 animate-pulse"></div>
+                                    <span id="modelStatusText">모델 상태: 비활성</span>
+                                </div>
+                                <div class="space-y-1 text-xs">
+                                    <div>프레임 처리: <span id="frameCount">0</span>회</div>
+                                    <div>마지막 감지: <span id="lastDetection">없음</span></div>
+                                    <div>처리 속도: <span id="processingSpeed">0</span>fps</div>
+                                    <div>AI 응답: <span id="aiResponse">대기 중</span></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 감지 결과 오버레이 -->
+                            <div id="detectionResultOverlay" class="absolute top-4 right-4 bg-blue-900 bg-opacity-80 text-white p-3 rounded-lg text-sm z-20 hidden">
+                                <div class="font-bold mb-2">Real-time Detection Results</div>
+                                <div id="detectionResults" class="space-y-1 text-xs">
+                                    <div>감지된 얼굴: <span id="faceCount">0</span>개</div>
+                                    <div>용의자 매칭: <span id="suspectMatches">0</span>건</div>
+                                    <div>신뢰도: <span id="confidence">0%</span></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 디버깅 콘솔 -->
+                            <div id="debugConsole" class="absolute bottom-4 left-4 right-4 bg-gray-900 bg-opacity-90 text-green-400 p-3 rounded-lg text-xs z-20 max-h-32 overflow-y-auto hidden">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="font-bold">🔧 Debug Console</span>
+                                    <button onclick="clearDebugLog()" class="text-red-400 hover:text-red-300">Clear</button>
+                                </div>
+                                <div id="debugLog"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 사이드바 (30% 너비) -->
+                <div class="lg:col-span-1 space-y-6">
+                    
+                    <!-- 제어판 -->
+                    <div class="bg-white rounded-lg shadow-lg p-4">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">제어판</h3>
+                        
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-medium text-gray-700">현상수배범 감지 필터</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="detectionFilter">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            
+                            <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                                <p>💡 필터 활성화 시 AI가 자동으로 용의자를 탐지합니다.</p>
+                            </div>
+                            
+                            <!-- 디버깅 모드 -->
+                            <div class="flex items-center justify-between mt-4 p-2 bg-yellow-50 rounded">
+                                <span class="text-sm font-medium text-yellow-700">디버깅 모드</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="debugMode">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            
+                            <!-- 모델 테스트 버튼들 -->
+                            <div class="space-y-2 mt-4">
+                                <button id="testModelBtn" class="w-full bg-green-600 text-white py-2 px-3 rounded text-sm hover:bg-green-700 transition-colors">
+                                    🧪 모델 연결 테스트
+                                </button>
+                                <button id="testFrameBtn" class="w-full bg-blue-600 text-white py-2 px-3 rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50" disabled>
+                                    📸 현재 프레임 분석
+                                </button>
+                                <button id="forceDetectionBtn" class="w-full bg-orange-600 text-white py-2 px-3 rounded text-sm hover:bg-orange-700 transition-colors disabled:opacity-50" disabled>
+                                    🔧 강제 감지 실행
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 시스템 상태 -->
+                    <div class="bg-white rounded-lg shadow-lg p-4">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">시스템 상태</h3>
+                        
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">AI 엔진</span>
+                                <span class="text-sm font-medium text-yellow-600" data-status="ai-engine">초기화 중...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">데이터베이스</span>
+                                <span class="text-sm font-medium text-yellow-600" data-status="database">연결 중...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">마지막 업데이트</span>
+                                <span class="text-sm text-gray-500" id="lastUpdate">방금 전</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 정보 패널 -->
+                    <div class="bg-white rounded-lg shadow-lg p-6 flex-1">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-6">감지 상세 정보</h3>
+                        
+                        <div id="detectionInfo" class="min-h-96 max-h-screen overflow-y-auto">
+                            <div class="text-sm text-gray-500 text-center py-12">
+                                <svg class="mx-auto h-10 w-10 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                </svg>
+                                <p>감지된 정보가 없습니다.</p>
+                                <p class="text-xs mt-2">필터를 활성화해 주세요.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // Basic upload + selection helpers (ASCII to avoid encoding issues)
+        // ==========================================
+        const objectURL = window.URL || window.webkitURL;
+
+        function updateFileInfoUI(fileName) {
+            const fileNameEl = document.getElementById('fileName');
+            const fileInfoEl = document.getElementById('fileInfo');
+            
+            if (fileNameEl) fileNameEl.textContent = fileName || '';
+            if (fileInfoEl) {
+                if (fileName) {
+                    fileInfoEl.classList.remove('hidden');
+                } else {
+                    fileInfoEl.classList.add('hidden');
+                }
+            }
+        }
+
+        function handleFileSelect(input) {
+            if (!input || !input.files || input.files.length === 0) {
+                return;
+            }
+            
+            const file = input.files[0];
+            if (file) {
+                window.selectedFile = file;
+                updateFileInfoUI(file.name);
+                
+                // 분석 버튼 활성화
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                if (analyzeBtn) {
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                
+                alert('파일 선택 완료: ' + file.name);
+            }
+        }
+
+        function testFileUpload() {
+            const input = document.getElementById('videoFile');
+            if (input) {
+                input.click();
+            }
+        }
+
+        function selectSuspect(cardElement, name, isThief) {
+            document.querySelectorAll('.suspect-card').forEach(card => {
+                card.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                card.style.transform = 'scale(1)';
+            });
+
+            if (cardElement) {
+                cardElement.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                cardElement.style.transform = 'scale(1.05)';
+            }
+
+            window.selectedSuspect = {
+                id: cardElement ? cardElement.dataset.suspectId : null,
+                name,
+                isThief
+            };
+            if (typeof selectedSuspect !== 'undefined') {
+                selectedSuspect = window.selectedSuspect;
+            }
+
+            const selectedSuspectName = document.getElementById('selectedSuspectName');
+            const selectedSuspectInfo = document.getElementById('selectedSuspectInfo');
+            const proceedToDashboard = document.getElementById('proceedToDashboard');
+
+            if (selectedSuspectName) selectedSuspectName.textContent = name;
+            if (selectedSuspectInfo) selectedSuspectInfo.classList.remove('hidden');
+            if (proceedToDashboard) {
+                proceedToDashboard.disabled = false;
+                proceedToDashboard.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function loadVideoAndStartDetection() {
+            console.log('Loading video and starting detection...');
+            
+            if (!window.selectedFile) {
+                console.error('No selected file found');
+                alert('먼저 영상을 선택해주세요.');
+                return;
+            }
+
+            console.log('Selected file:', window.selectedFile.name, window.selectedFile.type, window.selectedFile.size);
+
+            const mainVideo = document.getElementById('mainVideo');
+            const videoSource = document.getElementById('videoSource');
+            
+            if (!mainVideo) {
+                console.error('Main video element not found');
+                return;
+            }
+            
+            if (!videoSource) {
+                console.error('Video source element not found');
+                return;
+            }
+
+            console.log('Video elements found, creating object URL...');
+
+            try {
+                const url = objectURL.createObjectURL(window.selectedFile);
+                console.log('Object URL created:', url);
+                
+                // 이전 URL 정리
+                if (videoSource.src && videoSource.src.startsWith('blob:')) {
+                    objectURL.revokeObjectURL(videoSource.src);
+                }
+                
+                videoSource.src = url;
+                console.log('Video source set to:', url);
+                
+                // 비디오 로드 이벤트 리스너 추가
+                mainVideo.addEventListener('loadstart', () => {
+                    console.log('Video loading started');
+                });
+                
+                mainVideo.addEventListener('canplay', () => {
+                    console.log('Video can play');
+                });
+                
+                mainVideo.addEventListener('error', (e) => {
+                    console.error('Video error:', e, mainVideo.error);
+                    alert('비디오를 로드할 수 없습니다. 파일 형식을 확인해주세요.');
+                });
+                
+                mainVideo.addEventListener('loadeddata', () => {
+                    console.log('Video data loaded, starting playback...');
+                    mainVideo.play().then(() => {
+                        console.log('Video playback started');
+                        // AI 감지 활성화
+                        const detectionFilter = document.getElementById('detectionFilter');
+                        if (detectionFilter) {
+                            detectionFilter.checked = true;
+                            detectionFilter.dispatchEvent(new Event('change'));
+                            console.log('AI detection enabled');
+                        }
+                    }).catch(err => {
+                        console.error('Video play error:', err);
+                        // 자동재생 실패시 사용자가 수동으로 재생할 수 있도록 컨트롤 표시
+                        mainVideo.controls = true;
+                    });
+                }, { once: true });
+                
+                console.log('Loading video...');
+                mainVideo.load();
+                
+            } catch (error) {
+                console.error('Error creating object URL:', error);
+                alert('비디오 파일을 로드하는 중 오류가 발생했습니다.');
+            }
+        }
+
+        function setupFileUploadEvents() {
+            const fileInput = document.getElementById('videoFile');
+            if (!fileInput) {
+                console.error('videoFile element not found');
+                return;
+            }
+            fileInput.addEventListener('change', () => handleFileSelect(fileInput));
+        }
+
+        // Global function exports
+        window.handleFileSelect = handleFileSelect;
+        window.selectSuspect = selectSuspect;
+        window.testFileUpload = testFileUpload;
+        window.loadVideoAndStartDetection = loadVideoAndStartDetection;
+
+        // API Base URL
+        const API_BASE_URL = 'http://localhost:5000';
+        
+        // Global DOM elements
+        let uploadScreen, suspectSelectScreen, dashboardScreen;
+        let videoFile, analyzeBtn, fileInfo, fileName;
+        let mainVideo, videoSource, detectionFilter, detectionInfo, lastUpdate;
+        let suspectCards, selectedSuspectInfo, selectedSuspectName, proceedToDashboard;
+        
+        // DOM element initialization function
+        function initializeDOMElements() {
+            console.log('Initializing DOM elements...');
+            
+            uploadScreen = document.getElementById('uploadScreen');
+            suspectSelectScreen = document.getElementById('suspectSelectScreen');
+            dashboardScreen = document.getElementById('dashboardScreen');
+            videoFile = document.getElementById('videoFile');
+            analyzeBtn = document.getElementById('analyzeBtn');
+            fileInfo = document.getElementById('fileInfo');
+            fileName = document.getElementById('fileName');
+            
+            // Check DOM element existence
+            console.log('DOM elements loaded:');
+            console.log('videoFile:', videoFile);
+            console.log('analyzeBtn:', analyzeBtn);
+            console.log('fileInfo:', fileInfo);
+            console.log('fileName:', fileName);
+            
+            if (!videoFile) {
+                console.error('videoFile element not found!');
+                return false;
+            }
+            if (!analyzeBtn) {
+                console.error('analyzeBtn element not found!');
+                return false;
+            }
+            if (!fileInfo) {
+                console.error('fileInfo element not found!');
+                return false;
+            }
+            if (!fileName) {
+                console.error('fileName element not found!');
+                return false;
+            }
+            
+            console.log('All DOM elements initialized successfully');
+            return true;
+        }
+
+        let selectedFile = null;
+        let selectedSuspect = null;
+        let detectionTimeout = null;
+        let detectionInterval = null;  // 실시간 감지용
+        let videoCanvas = null;         // 비디오 프레임 캡처용
+        
+        let isDetectionActive = false; // 감지 활성화 상태
+        
+        // 디버깅 및 모델 상태 변수들
+        let debugMode = false;
+        let frameProcessCount = 0;
+        let lastDetectionTime = null;
+        let processingStartTime = null;
+        let modelTestResults = null;
+        let debugLogs = [];
+        
+        // ==========================================
+        // 디버깅 및 상태 관리 함수들
+        // ==========================================
+        
+        function addDebugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}`;
+            debugLogs.push({ message: logEntry, type, timestamp });
+            
+            if (debugMode) {
+                const debugLog = document.getElementById('debugLog');
+                if (debugLog) {
+                    const logElement = document.createElement('div');
+                    logElement.className = `text-${type === 'error' ? 'red' : type === 'warning' ? 'yellow' : 'green'}-400`;
+                    logElement.textContent = logEntry;
+                    debugLog.appendChild(logElement);
+                    debugLog.scrollTop = debugLog.scrollHeight;
+                }
+            }
+            
+            console.log(`[DEBUG] ${logEntry}`);
+        }
+        
+        function clearDebugLog() {
+            debugLogs = [];
+            const debugLog = document.getElementById('debugLog');
+            if (debugLog) {
+                debugLog.innerHTML = '';
+            }
+        }
+        
+        function updateModelStatus(status, isActive = false) {
+            const statusDot = document.getElementById('modelStatusDot');
+            const statusText = document.getElementById('modelStatusText');
+            const frameCount = document.getElementById('frameCount');
+            const lastDetection = document.getElementById('lastDetection');
+            const processingSpeed = document.getElementById('processingSpeed');
+            const aiResponse = document.getElementById('aiResponse');
+            
+            if (statusDot && statusText) {
+                if (isActive) {
+                    statusDot.className = 'w-3 h-3 bg-green-500 rounded-full mr-2 animate-pulse';
+                    statusText.textContent = `모델 상태: ${status}`;
+                } else {
+                    statusDot.className = 'w-3 h-3 bg-red-500 rounded-full mr-2';
+                    statusText.textContent = `모델 상태: ${status}`;
+                }
+            }
+            
+            if (frameCount) frameCount.textContent = frameProcessCount;
+            if (lastDetection) lastDetection.textContent = lastDetectionTime || '없음';
+            if (processingSpeed) {
+                const fps = frameProcessCount > 0 ? (frameProcessCount / ((Date.now() - processingStartTime) / 1000)).toFixed(1) : '0';
+                processingSpeed.textContent = fps;
+            }
+            if (aiResponse) aiResponse.textContent = status;
+        }
+        
+        function updateDetectionResults(faces = [], suspects = 0, avgConfidence = 0) {
+            const faceCount = document.getElementById('faceCount');
+            const suspectMatches = document.getElementById('suspectMatches');
+            const confidence = document.getElementById('confidence');
+            
+            if (faceCount) faceCount.textContent = faces.length;
+            if (suspectMatches) suspectMatches.textContent = suspects;
+            if (confidence) confidence.textContent = `${avgConfidence.toFixed(1)}%`;
+        }
+        
+        function toggleDebugMode() {
+            debugMode = !debugMode;
+            const overlay = document.getElementById('modelStatusOverlay');
+            const resultOverlay = document.getElementById('detectionResultOverlay');
+            const debugConsole = document.getElementById('debugConsole');
+            
+            if (debugMode) {
+                overlay?.classList.remove('hidden');
+                resultOverlay?.classList.remove('hidden');
+                debugConsole?.classList.remove('hidden');
+                addDebugLog('디버깅 모드 활성화', 'info');
+            } else {
+                overlay?.classList.add('hidden');
+                resultOverlay?.classList.add('hidden');
+                debugConsole?.classList.add('hidden');
+            }
+        }
+        
+        // ==========================================
+        // API 통신 함수들
+        // ==========================================
+        
+        async function checkServerStatus() {
+            // 서버 상태 확인
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/status`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('서버 상태:', data);
+                    addDebugLog('Server connected successfully', 'info');
+                    return data;
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                console.warn('서버 연결 실패 (오프라인 모드):', error);
+                addDebugLog(`⚠️ 서버 연결 실패: ${error.message} - 시뮬레이션 모드로 전환`, 'warning');
+                return null;
+            }
+        }
+        
+        async function uploadVideoToServer(file) {
+            // 서버로 비디오 파일 업로드
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                
+                const response = await fetch(`${API_BASE_URL}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('비디오 업로드 성공:', data);
+                    return data;
+                } else {
+                    console.error('비디오 업로드 실패');
+                    return null;
+                }
+            } catch (error) {
+                console.warn('업로드 API 호출 실패 (오프라인 모드):', error);
+                return null;
+            }
+        }
+        
+        async function detectFaceInFrame(imageData, targetSuspectId) {
+            // 단일 프레임에서 얼굴 감지 및 인식 (실제 AI 모델)
+            const startTime = performance.now();
+            addDebugLog(`프레임 분석 시작 (크기: ${Math.round(imageData.length/1024)}KB)`, 'info');
+            
+            try {
+                updateModelStatus('API 요청 중...', true);
+                
+                const response = await fetch(`${API_BASE_URL}/api/detect`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: imageData
+                    })
+                });
+                
+                const endTime = performance.now();
+                const processingTime = endTime - startTime;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addDebugLog(`AI response successful (${processingTime.toFixed(0)}ms)`, 'info');
+                    updateModelStatus('분석 완료', true);
+                    frameProcessCount++;
+                    lastDetectionTime = new Date().toLocaleTimeString();
+                    console.log('AI response:', data);
+                    return data;
+                } else {
+                    addDebugLog(`API error: ${response.status}`, 'error');
+                    updateModelStatus(`API 오류 (${response.status})`, false);
+                    console.error('얼굴 감지 API 호출 실패:', response.status);
+                    return null;
+                }
+            } catch (error) {
+                const endTime = performance.now();
+                const processingTime = endTime - startTime;
+                addDebugLog(`Network error: ${error.message} (${processingTime.toFixed(0)}ms)`, 'error');
+                updateModelStatus('연결 실패', false);
+                console.warn('감지 API 호출 실패:', error);
+                return null;
+            }
+        }
+        
+        // ==========================================
+        // 실시간 얼굴 감지 로직
+        // ==========================================
+        
+        function setupVideoCanvas() {
+            // 비디오 프레임 캡처를 위한 캔버스 설정
+            if (!videoCanvas) {
+                videoCanvas = document.createElement('canvas');
+                videoCanvas.style.display = 'none';
+                document.body.appendChild(videoCanvas);
+                console.log('🎨 비디오 캔버스 생성');
+            }
+            
+            // 바운딩 박스 오버레이 캔버스 설정
+            const videoContainer = mainVideo.parentElement;
+            
+            // 기존 오버레이 캔버스 제거
+            const existingOverlay = videoContainer.querySelector('.detection-overlay');
+            if (existingOverlay) {
+                existingOverlay.remove();
+                console.log('🧹 기존 오버레이 제거');
+            }
+            
+            // 새 오버레이 캔버스 생성
+            const overlayCanvas = document.createElement('canvas');
+            overlayCanvas.className = 'detection-overlay';
+            overlayCanvas.style.position = 'absolute';
+            overlayCanvas.style.top = '0';
+            overlayCanvas.style.left = '0';
+            overlayCanvas.style.pointerEvents = 'none';
+            overlayCanvas.style.zIndex = '10';
+            overlayCanvas.style.border = '2px solid lime'; // 디버그용 녹색 테두리
+            
+            console.log('🎨 오버레이 캔버스 생성됨');
+            overlayCanvas.style.border = '2px solid red'; // 디버그용 테두리
+            
+            console.log('🎨 오버레이 캔버스 생성됨');
+            
+            // 비디오 컨테이너에 relative 포지션 설정
+            if (getComputedStyle(videoContainer).position === 'static') {
+                videoContainer.style.position = 'relative';
+            }
+            
+            videoContainer.appendChild(overlayCanvas);
+            
+            // 비디오 크기에 맞춰 캔버스 크기 조정
+            function resizeOverlayCanvas() {
+                const videoElement = mainVideo;
+                const displayWidth = videoElement.offsetWidth;
+                const displayHeight = videoElement.offsetHeight;
+                const videoWidth = videoElement.videoWidth || displayWidth;
+                const videoHeight = videoElement.videoHeight || displayHeight;
+                
+                // 🔥 핵심 수정: 캔버스 크기는 비디오 원본 크기에 맞춤 (정확한 좌표 매칭)
+                overlayCanvas.width = videoWidth;
+                overlayCanvas.height = videoHeight;
+                overlayCanvas.style.width = displayWidth + 'px';
+                overlayCanvas.style.height = displayHeight + 'px';
+                
+                addDebugLog(`🎨 오버레이 캔버스 크기 설정: 픽셀(${videoWidth}x${videoHeight}) → 디스플레이(${displayWidth}x${displayHeight})`, 'info');
+                addDebugLog(`🎥 비디오 원본 크기: ${videoWidth}x${videoHeight}`, 'info');
+            }
+            
+            // 초기 크기 설정
+            setTimeout(resizeOverlayCanvas, 100); // 비디오 로드 대기
+            
+            // 비디오 로드시 크기 재조정
+            mainVideo.addEventListener('loadedmetadata', resizeOverlayCanvas);
+            window.addEventListener('resize', resizeOverlayCanvas);
+            
+            // 전역 변수에 저장
+            window.detectionOverlay = overlayCanvas;
+        }
+        
+        function captureVideoFrame() {
+            // 현재 비디오 프레임을 캡처하여 Base64로 변환
+            if (!mainVideo || mainVideo.paused || mainVideo.ended) {
+                return null;
+            }
+            
+            const ctx = videoCanvas.getContext('2d');
+            videoCanvas.width = mainVideo.videoWidth;
+            videoCanvas.height = mainVideo.videoHeight;
+            
+            ctx.drawImage(mainVideo, 0, 0, videoCanvas.width, videoCanvas.height);
+            
+            try {
+                return videoCanvas.toDataURL('image/jpeg', 0.7);
+            } catch (error) {
+                console.error('프레임 캡처 실패:', error);
+                return null;
+            }
+        }
+        
+        function drawBoundingBoxes(detections) {
+            // 실제 AI 모델 바운딩 박스 그리기
+            const overlayCanvas = window.detectionOverlay;
+            if (!overlayCanvas || !detections) return;
+            
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            addDebugLog(`🎨 바운딩박스 그리기: ${detections.length}개 얼굴`, 'info');
+            
+            // 🔥 핵심 수정: AI 모델 좌표계와 비디오 디스플레이 좌표계 매칭
+            const videoElement = mainVideo;
+            
+            // 📏 Canvas와 Video 실제 크기
+            const canvasDisplayWidth = overlayCanvas.offsetWidth;  // Canvas 디스플레이 너비 
+            const canvasDisplayHeight = overlayCanvas.offsetHeight; // Canvas 디스플레이 높이
+            const canvasPixelWidth = overlayCanvas.width;         // Canvas 픽셀 너비
+            const canvasPixelHeight = overlayCanvas.height;       // Canvas 픽셀 높이
+            
+            // 📺 Video 실제 크기  
+            const videoDisplayWidth = videoElement.offsetWidth;   // Video 디스플레이 너비
+            const videoDisplayHeight = videoElement.offsetHeight; // Video 디스플레이 높이
+            const videoPixelWidth = videoElement.videoWidth || videoDisplayWidth;     // Video 원본 너비
+            const videoPixelHeight = videoElement.videoHeight || videoDisplayHeight; // Video 원본 높이
+            
+            addDebugLog(`📏 Canvas: 디스플레이(${canvasDisplayWidth}x${canvasDisplayHeight}), 픽셀(${canvasPixelWidth}x${canvasPixelHeight})`, 'info');
+            addDebugLog(`📺 Video: 디스플레이(${videoDisplayWidth}x${videoDisplayHeight}), 원본(${videoPixelWidth}x${videoPixelHeight})`, 'info');
+            
+            // AI model analyzes in videoPixel coordinates, Canvas draws in canvasPixel coordinates
+            const scaleX = canvasPixelWidth / videoPixelWidth;
+            const scaleY = canvasPixelHeight / videoPixelHeight; 
+            
+            addDebugLog(`🔢 스케일링 계수: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`, 'info');
+            
+            detections.forEach((detection, index) => {
+                // AI 서버 형식: bbox: [x1, y1, x2, y2] (비디오 원본 픽셀 기준)
+                if (!detection.bbox) {
+                    addDebugLog(`⚠️ Face ${index}: 바운딩박스 데이터 없음`, 'warning');
+                    return;
+                }
+                
+                const [x1, y1, x2, y2] = detection.bbox;
+                
+                // Convert to Canvas pixel coordinates
+                const x = x1 * scaleX;
+                const y = y1 * scaleY;
+                const width = (x2 - x1) * scaleX;
+                const height = (y2 - y1) * scaleY;
+                
+                addDebugLog(`🔲 Face ${index}: AI좌표(${x1},${y1},${x2-x1},${y2-y1}) → Canvas좌표(${x.toFixed(1)},${y.toFixed(1)},${width.toFixed(1)},${height.toFixed(1)})`, 'info');
+                
+                // 얼굴 인식 상태 분석
+                const isSuspect = detection.is_suspect || detection.match_confidence > 0;
+                const confidence = detection.match_confidence || 0;
+                const detectionConfidence = detection.confidence || 0;
+                
+                // 색상 및 라벨 결정 (새로운 범죄자/일반인 구분 로직)
+                let boxColor = '#00FF00'; // 기본: 초록색 (일반인/안전)
+                let labelPrefix = 'SAFE';
+                let textColor = '#B3FFB3';
+                let suspectName = detection.person_name || '알 수 없음';
+                
+                // 범죄자 확인
+                if (detection.is_criminal && detection.recognition_confidence > 0.6) {
+                    // 🚨 범죄자: 빨간색 + 깜빡이는 효과
+                    const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+                    boxColor = `rgba(255, 0, 0, ${pulse})`;
+                    labelPrefix = '🚨 범죄자';
+                    textColor = '#FFB3B3';
+                } else if (detection.is_normal && detection.recognition_confidence > 0.6) {
+                    // Normal person: green color
+                    boxColor = '#00FF00';
+                    labelPrefix = 'NORMAL';
+                    textColor = '#B3FFB3';
+                } else if (detection.person_type === 'unknown') {
+                    // 🔍 신원 미확인: 노란색
+                    boxColor = '#FFFF00';
+                    labelPrefix = '🔍 미확인';
+                    textColor = '#FFFFB3';
+                    suspectName = '신원 미확인';
+                }
+                
+                addDebugLog(`🎨 Face ${index} 그리기: ${labelPrefix} ${suspectName}, 신뢰도: ${(detectionConfidence * 100).toFixed(1)}%`, 'info');
+                
+                // 바운딩 박스 그리기 (두꺼운 테두리)
+                ctx.strokeStyle = boxColor;
+                ctx.lineWidth = detection.is_criminal ? 5 : 3; // 범죄자는 더 두꺼운 선
+                ctx.strokeRect(x, y, width, height);
+                
+                // 범죄자인 경우 추가 외곽선
+                if (detection.is_criminal) {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x-3, y-3, width+6, height+6);
+                }
+                
+                // 배경 박스 (텍스트용)
+                const textHeight = 75;
+                const textWidth = Math.max(width, 280);
+                
+                // 그라데이션 배경
+                const gradient = ctx.createLinearGradient(x, y - textHeight, x, y);
+                if (detection.is_criminal) {
+                    gradient.addColorStop(0, 'rgba(139, 0, 0, 0.9)'); // 어두운 빨강 (범죄자)
+                    gradient.addColorStop(1, 'rgba(220, 20, 60, 0.9)'); // 밝은 빨강
+                } else if (detection.is_normal) {
+                    gradient.addColorStop(0, 'rgba(0, 100, 0, 0.9)'); // 어두운 초록 (일반인)
+                    gradient.addColorStop(1, 'rgba(34, 139, 34, 0.9)'); // 밝은 초록
+                } else {
+                    gradient.addColorStop(0, 'rgba(139, 139, 0, 0.9)'); // 어두운 노랑 (미확인)
+                    gradient.addColorStop(1, 'rgba(255, 255, 0, 0.9)'); // 밝은 노랑
+                }
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, y - textHeight, textWidth, textHeight);
+                
+                // 텍스트 정보
+                ctx.fillStyle = textColor;
+                ctx.font = 'bold 16px Arial';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
+                
+                let label = labelPrefix;
+                if (suspectName && suspectName !== '알 수 없음' && suspectName !== '신원 미확인') {
+                    label += ` ${suspectName}`;
+                }
+                
+                // 텍스트에 외곽선 추가 (가독성 향상)
+                ctx.strokeText(label, x + 10, y - 50);
+                ctx.fillText(label, x + 10, y - 50);
+                
+                // 감지 신뢰도 표시
+                if (detectionConfidence > 0) {
+                    const confidenceText = `감지: ${(detectionConfidence * 100).toFixed(1)}%`;
+                    ctx.strokeText(confidenceText, x + 10, y - 33);
+                    ctx.fillText(confidenceText, x + 10, y - 33);
+                }
+                
+                // 인식 신뢰도 표시 (범죄자/일반인 매칭)
+                if (detection.recognition_confidence > 0) {
+                    const matchText = `매칭: ${(detection.recognition_confidence * 100).toFixed(1)}%`;
+                    ctx.strokeText(matchText, x + 10, y - 16);
+                    ctx.fillText(matchText, x + 10, y - 16);
+                }
+                
+                // 추가 정보 표시 (사람 유형)
+                if (detection.person_type) {
+                    const typeText = detection.person_type === 'criminal' ? '범죄자' : 
+                                   detection.person_type === 'normal' ? '일반인' : '미확인';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.strokeText(typeText, x + 10, y + 1);
+                    ctx.fillText(typeText, x + 10, y + 1);
+                }
+                
+                // 고위험 용의자인 경우 경고 아이콘 추가
+                if (isSuspect && detection.danger_level === 'HIGH') {
+                    ctx.fillStyle = 'yellow';
+                    ctx.font = '20px Arial';
+                    ctx.fillText('⚠️', x + width - 30, y - 25);
+                }
+                
+                // 인덱스 번호 표시
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText(`#${index + 1}`, x + 5, y + height - 5);
+            });
+            
+            addDebugLog(`🎨 바운딩박스 그리기 완료: ${detections.length}개`, 'info');
+        }
+        async function processRealtimeDetection() {
+            // 실시간 AI 모델 기반 감지 처리
+            if (!isDetectionActive) {
+                addDebugLog('감지가 비활성화되어 있음', 'warning');
+                return;
+            }
+            
+            const frameData = captureVideoFrame();
+            if (!frameData) {
+                addDebugLog('프레임 캡처 실패 - 비디오가 재생 중인지 확인', 'error');
+                updateModelStatus('프레임 캡처 실패', false);
+                return;
+            }
+            
+            addDebugLog(`프레임 캡처 성공 (${Math.round(frameData.length/1024)}KB)`, 'info');
+            
+            try {
+                // 실제 AI 모델 서버 호출
+                addDebugLog('Sending frame to AI model server...', 'info');
+                const detectionResult = await detectFaceInFrame(frameData);
+                
+                if (detectionResult && detectionResult.success) {
+                    addDebugLog(`AI model response successful: ${detectionResult.results?.faces?.length || 0} faces detected`, 'info');
+                    processDetectionResult(detectionResult);
+                } else {
+                    addDebugLog('AI model response failed or empty result', 'error');
+                    updateModelStatus('AI 모델 응답 실패', false);
+                }
+            } catch (error) {
+                addDebugLog(`AI model call failed: ${error.message}`, 'error');
+                updateModelStatus('AI 서버 연결 실패', false);
+            }
+        }
+        
+        function processDetectionResult(result) {
+            // 새로운 AI 모델의 감지 결과 처리 (범죄자/일반인 구분)
+            addDebugLog(`AI model result processing started: ${JSON.stringify(result)}`, 'info');
+            
+            // 새로운 API 응답 형식: result.results.faces
+            const faces = result.results?.faces || [];
+            
+            // 결과 업데이트
+            const criminalFaces = faces.filter(f => f.is_criminal).length;
+            const normalFaces = faces.filter(f => f.is_normal).length;
+            const avgConfidence = faces.length > 0 ? 
+                faces.reduce((sum, f) => sum + (f.confidence || 0), 0) / faces.length * 100 : 0;
+            updateDetectionResults(faces, criminalFaces, avgConfidence);
+            
+            if (!faces || faces.length === 0) {
+                // 감지된 얼굴이 없으면 바운딩 박스 지우기
+                if (window.detectionOverlay) {
+                    const ctx = window.detectionOverlay.getContext('2d');
+                    ctx.clearRect(0, 0, window.detectionOverlay.width, window.detectionOverlay.height);
+                }
+                updateDetectionInfo('얼굴이 감지되지 않았습니다.', false);
+                addDebugLog('얼굴 감지되지 않음', 'info');
+                return;
+            }
+            
+            addDebugLog(`👥 ${faces.length}개 얼굴 감지됨 (범죄자: ${criminalFaces}, 일반인: ${normalFaces})`, 'info');
+            
+            // 바운딩 박스 그리기 (새로운 색상 구분 적용)
+            drawBoundingBoxes(faces);
+            
+            // 범죄자 감지 확인 - Criminal만 빨간색 알럿 처리
+            let criminalDetected = false;
+            let bestCriminalMatch = null;
+            let normalPersonsDetected = [];
+            
+            faces.forEach((detection, index) => {
+                if (detection.is_criminal && detection.recognition_confidence > 0.6) {
+                    // 🚨 범죄자 감지됨 - 빨간색 알럿
+                    criminalDetected = true;
+                    if (!bestCriminalMatch || detection.recognition_confidence > bestCriminalMatch.recognition_confidence) {
+                        bestCriminalMatch = detection;
+                    }
+                    const confidencePercent = (detection.recognition_confidence * 100).toFixed(1);
+                    console.log(`🚨 범죄자 감지! ${detection.person_name || '범죄자'} (신뢰도: ${confidencePercent}%)`);
+                } else if (detection.is_normal && detection.recognition_confidence > 0.6) {
+                    // Normal person detected - green color (no alert)
+                    normalPersonsDetected.push(detection);
+                    const confidencePercent = (detection.recognition_confidence * 100).toFixed(1);
+                    console.log(`Normal person detected: ${detection.person_name || 'Normal'} (confidence: ${confidencePercent}%)`);
+                } else {
+                    // 🔍 신원 미확인 - 기본 색상
+                    const confidencePercent = (detection.confidence * 100).toFixed(1);
+                    console.log(`🔍 신원 미확인 얼굴 감지 (감지 신뢰도: ${confidencePercent}%)`);
+                }
+            });
+            
+            if (criminalDetected && bestCriminalMatch) {
+                // 🚨 범죄자 감지 시에만 빨간색 알럿 발생
+                const criminalInfo = {
+                    name: bestCriminalMatch.person_name || '범죄자',
+                    confidence: bestCriminalMatch.recognition_confidence * 100,
+                    danger_level: 'HIGH'
+                };
+                triggerRealSuspectAlert(criminalInfo);
+                console.log('🚨 범죄자 알럿 발생:', criminalInfo);
+            } else if (normalPersonsDetected.length > 0) {
+                // 일반인만 감지된 경우 - 초록색 표시, 알럿 없음
+                const normalNames = normalPersonsDetected.map(p => p.person_name || '일반인').join(', ');
+                updateDetectionInfo(`감지된 일반인: ${normalNames} - 모두 안전`, false);
+                console.log('Only normal people detected, no alert');
+            } else {
+                // 신뢰도가 낮은 감지 결과
+                updateDetectionInfo('얼굴이 감지되었으나 인식 신뢰도가 낮습니다.', false);
+            }
+            
+            // 처리 시간 로그
+            if (result.timestamp) {
+                addDebugLog('Processing time: real-time', 'info');
+            }
+            addDebugLog(`AI processing time: ${processingTime > 0 ? processingTime.toFixed(3) + 's' : 'real_time'}`, 'info');
+        }
+        
+        function triggerRealSuspectAlert(matchInfo) {
+            // 실제 AI 모델 기반 범죄자 감지 알럿
+            console.log('🚨 AI 모델이 범죄자를 감지했습니다!', matchInfo);
+            
+            // 시각적 알럿 - 비디오에 빨간색 경고 테두리
+            mainVideo.classList.add('alert-border');
+            
+            // 상세 정보 표시 - 실제 AI 모델 데이터 사용
+            const alertHtml = `
+                <div class="detection-info">
+                    <div class="flex items-center mb-4">
+                        <svg class="w-6 h-6 text-red-500 mr-3 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                        <h4 class="text-red-700 font-bold">🚨 AI 범죄자 감지 (RetinaFace + ArcFace)!</h4>
+                    </div>
+                    
+                    <div class="info-grid">
+                        <span class="info-label">용의자 ID:</span>
+                        <span class="info-value font-mono">${matchInfo.suspect_id}</span>
+                        
+                        <span class="info-label">이름:</span>
+                        <span class="info-value font-semibold">${matchInfo.name}</span>
+                        
+                        <span class="info-label">위험도:</span>
+                        <span class="info-value text-red-600 font-bold">${matchInfo.risk_level.toUpperCase()}</span>
+                        
+                        <span class="info-label">범죄 유형:</span>
+                        <span class="info-value text-red-600">${matchInfo.category || 'thief'}</span>
+                        
+                        <span class="info-label">전과 기록:</span>
+                        <span class="info-value text-red-600">${Array.isArray(matchInfo.criminal_record) ? matchInfo.criminal_record.join(', ') : matchInfo.criminal_record || '절도'}</span>
+                        
+                        <span class="info-label">ArcFace 유사도:</span>
+                        <span class="info-value text-green-600 font-bold">${(matchInfo.similarity * 100).toFixed(1)}%</span>
+                        
+                        <span class="info-label">신뢰도:</span>
+                        <span class="info-value text-green-600 font-bold">${matchInfo.confidence.toFixed(1)}%</span>
+                        
+                        <span class="info-label">감지 시각:</span>
+                        <span class="info-value">${new Date().toLocaleTimeString()}</span>
+                        
+                        <span class="info-label">AI 모델:</span>
+                        <span class="info-value text-blue-600">RetinaFace (검출) + ArcFace (인식)</span>
+                        
+                        <span class="info-label">처리 시간:</span>
+                        <span class="info-value text-gray-600">${((Date.now() - performance.now()) / 1000).toFixed(3)}초</span>
+                    </div>
+                    
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <button class="bg-red-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-600 transition-colors flex items-center" onclick="handleEmergencyAlert()">
+                            🚨 긴급신고
+                        </button>
+                        <button class="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 transition-colors flex items-center" onclick="showSuspectDetails('${matchInfo.suspect_id}')">
+                            📋 상세정보
+                        </button>
+                        <button class="bg-yellow-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-yellow-600 transition-colors flex items-center" onclick="call119()">
+                            📞 119신고
+                        </button>
+                        <button class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600 transition-colors flex items-center" onclick="recordEvidence()">
+                            📹 증거저장
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3 text-xs text-gray-500">
+                        💡 AI가 실시간으로 비디오 프레임을 분석하여 용의자를 식별했습니다.
+                    </div>
+                </div>
+            `;
+            
+            detectionInfo.innerHTML = alertHtml;
+            
+            // 알림음 재생
+            playAlertSound();
+            
+            // 시간 업데이트
+            updateLastUpdateTime();
+            
+            // 브라우저 알림 (권한이 있는 경우)
+            if (Notification.permission === 'granted') {
+                new Notification('🚨 CCTV 범죄자 감지!', {
+                    body: `${matchInfo.name}님이 감지되었습니다. (신뢰도: ${matchInfo.confidence.toFixed(1)}%)`,
+                    icon: '🚨',
+                    tag: 'criminal-detected'
+                });
+            }
+        }
+
+        // 이벤트 리스너들은 setupOtherEvents에서 등록됨
+        // 대시보드 관련 이벤트들은 setupOtherEvents에서 처리됨
+        // 기타 이벤트 설정 함수
+        function setupOtherEvents() {
+            // 분석 시작 버튼 이벤트
+            if (analyzeBtn) {
+                analyzeBtn.addEventListener('click', function() {
+                    if (selectedFile) {
+                        // 업로드 화면 숨기고 용의자 선택 화면 보여주기
+                        if (uploadScreen) uploadScreen.classList.add('hidden');
+                        if (suspectSelectScreen) suspectSelectScreen.classList.remove('hidden');
+                    }
+                });
+            }
+            
+            // 용의자 카드 선택 이벤트
+            if (suspectCards && suspectCards.length > 0) {
+                suspectCards.forEach(card => {
+                    card.addEventListener('click', function() {
+                        // 모든 카드에서 선택 스타일 제거
+                        suspectCards.forEach(c => {
+                            c.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                            c.style.transform = 'scale(1)';
+                        });
+                        
+                        // 선택된 카드에 스타일 적용
+                        this.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+                        this.style.transform = 'scale(1.05)';
+                        
+                        // 선택된 용의자 정보 저장
+                        selectedSuspect = {
+                            id: this.dataset.suspectId,
+                            name: this.querySelector('h3').textContent,
+                            isThief: this.dataset.isThief === 'true'
+                        };
+                        
+                        // 선택된 용의자 정보 표시
+                        if (selectedSuspectName) selectedSuspectName.textContent = selectedSuspect.name;
+                        if (selectedSuspectInfo) selectedSuspectInfo.classList.remove('hidden');
+                        
+                        // 진행 버튼 활성화
+                        if (proceedToDashboard) {
+                            proceedToDashboard.disabled = false;
+                            proceedToDashboard.classList.remove('opacity-50', 'cursor-not-allowed');
+                        }
+                    });
+                });
+            }
+            
+            // 대시보드로 진행 버튼 이벤트
+            if (proceedToDashboard) {
+                proceedToDashboard.addEventListener('click', function() {
+                    if (selectedFile) {
+                        // 용의자 선택 화면 숨기고 대시보드 화면 보여주기
+                        if (suspectSelectScreen) suspectSelectScreen.classList.add('hidden');
+                        if (dashboardScreen) dashboardScreen.classList.remove('hidden');
+                        
+                        // 비디오 파일 로드
+                        const videoURL = objectURL.createObjectURL(selectedFile);
+                        if (videoSource) videoSource.src = videoURL;
+                        if (mainVideo) mainVideo.load();
+                        
+                        // 비디오 자동 재생 (감지는 수동으로만 시작)
+                        if (mainVideo) {
+                            mainVideo.addEventListener('loadeddata', function() {
+                                mainVideo.play().catch(e => {
+                                    console.log('자동 재생이 차단되었습니다. 사용자가 직접 재생해야 합니다.');
+                                    addDebugLog('자동 재생 차단됨 - 수동 재생 필요', 'warning');
+                                });
+                                
+                                // 비디오 준비 완료, 감지는 사용자가 버튼을 눌렀을 때만 시작
+                                console.log('🎥 비디오 로드 완료 - 감지 버튼을 눌러 시작하세요');
+                                addDebugLog(`🎥 비디오 로드 완료 (${mainVideo.videoWidth}x${mainVideo.videoHeight})`, 'info');
+                                setupVideoCanvas();
+                                updateDetectionInfo('📹 비디오 준비 완료. 우측 "현상수배범 감지 필터"를 활성화하세요.', false);
+                                
+                                // 테스트 버튼들 활성화
+                                const testFrameBtn = document.getElementById('testFrameBtn');
+                                const forceDetectionBtn = document.getElementById('forceDetectionBtn');
+                                if (testFrameBtn) {
+                                    testFrameBtn.disabled = false;
+                                    testFrameBtn.classList.remove('opacity-50');
+                                }
+                                if (forceDetectionBtn) {
+                                    forceDetectionBtn.disabled = false;
+                                    forceDetectionBtn.classList.remove('opacity-50');
+                                }
+                                
+                                // 모델 상태 초기화
+                                processingStartTime = Date.now();
+                                frameProcessCount = 0;
+                                updateModelStatus('대기 중', false);
+                            });
+                        }
+
+                        updateLastUpdateTime();
+                    }
+                });
+            }
+            
+            // 감지 필터 토글 이벤트
+            if (detectionFilter) {
+                detectionFilter.addEventListener('change', function() {
+                    if (this.checked) {
+                        // 필터 ON - 실시간 AI 감지 시작
+                        console.log('AI face recognition system activated');
+                        addDebugLog('AI face recognition system activated', 'info');
+                        isDetectionActive = true;
+                        updateDetectionInfo('🤖 AI 모델 연결 중... (RetinaFace + ArcFace)', false);
+                        updateModelStatus('서버 연결 시도 중...', true);
+                        
+                        // 비디오 캔버스 설정
+                        setupVideoCanvas();
+                        
+                        // 서버 상태 확인 후 실제 감지 시작
+                        checkServerStatus().then(serverStatus => {
+                            const modelsInfo = serverStatus?.models || {};
+                            const detectorReady = Boolean(
+                                modelsInfo.face_detector ||
+                                modelsInfo.real_ai_detector ||
+                                modelsInfo.pipeline_initialized
+                            );
+                            const recognizerReady = Boolean(
+                                modelsInfo.face_recognizer ||
+                                modelsInfo.insightface_loaded ||
+                                modelsInfo.pipeline_initialized
+                            );
+                            
+                            if (serverStatus && detectorReady && recognizerReady) {
+                                // AI 모델이 준비된 경우 - 실제 감지 시작
+                                updateDetectionInfo('✅ AI 모델 연결됨. 실시간 얼굴 분석 시작...', false);
+                                addDebugLog('🎯 AI 서버 연결 성공: RetinaFace (검출) + ArcFace (인식)', 'info');
+                                updateModelStatus('AI 모델 작동 중', true);
+                                startRealtimeDetection();
+                            } else {
+                                // AI 모델 연결 실패
+                                updateDetectionInfo('❌ AI 서버 연결 실패. 서버를 확인해주세요.', false);
+                                addDebugLog('❌ AI 서버 연결 실패', 'error');
+                                updateModelStatus('서버 연결 실패', false);
+                                isDetectionActive = false;
+                                this.checked = false;
+                            }
+                        });
+                        
+                    } else {
+                        // 필터 OFF - 감지 중지
+                        console.log('🛑 AI 얼굴 인식 시스템 비활성화');
+                        addDebugLog('🛑 AI 얼굴 인식 시스템 비활성화됨', 'info');
+                        stopRealtimeDetection();
+                    }
+                });
+            }
+        }
+        
+        function startRealtimeDetection() {
+            // 실시간 AI 감지 시작
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+            }
+            
+            // 1초마다 프레임 분석 (실제 운영시에는 성능에 따라 조정)
+            detectionInterval = setInterval(() => {
+                processRealtimeDetection();
+            }, 200); // 200ms마다 실행 (초당 5프레임)
+        }
+        
+        function stopRealtimeDetection() {
+            // 실시간 감지 중지
+            isDetectionActive = false;
+            addDebugLog('실시간 감지 중지됨', 'info');
+            updateModelStatus('비활성화', false);
+            
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+            
+            if (detectionTimeout) {
+                clearTimeout(detectionTimeout);
+                detectionTimeout = null;
+            }
+            
+            // 바운딩 박스 지우기
+            if (window.detectionOverlay) {
+                const ctx = window.detectionOverlay.getContext('2d');
+                ctx.clearRect(0, 0, window.detectionOverlay.width, window.detectionOverlay.height);
+            }
+            
+            // 결과 초기화
+            updateDetectionResults([], 0, 0);
+            clearSuspectAlert();
+        }
+        
+        function simulateDetection() {
+            // 폴백 시뮬레이션 모드 - 실제 AI 모델 출력 형식을 따름
+            if (!isDetectionActive) return;
+            
+            const videoWidth = mainVideo.offsetWidth;
+            const videoHeight = mainVideo.offsetHeight;
+            const currentTime = mainVideo.currentTime;
+            
+            // 실제 AI 모델 출력 형식에 맞춘 시뮬레이션
+            const simulatedFaces = [];
+            
+            // RetinaFace 검출 결과 시뮬레이션 (bbox: [x1, y1, x2, y2] 픽셀 좌표)
+            // 얼굴 1: 일반인 (순대국 - suspect_id: "2")
+            const face1Progress = (currentTime * 0.3) % 2;
+            const face1X1 = videoWidth * (0.1 + (0.6 * (face1Progress > 1 ? 2 - face1Progress : face1Progress)));
+            const face1Y1 = videoHeight * (0.3 + Math.sin(currentTime * 2) * 0.05);
+            const face1X2 = face1X1 + videoWidth * 0.12;
+            const face1Y2 = face1Y1 + videoHeight * 0.16;
+            
+            simulatedFaces.push({
+                bbox: [face1X1, face1Y1, face1X2, face1Y2], // 픽셀 좌표
+                confidence: 0.88 + Math.sin(currentTime * 3) * 0.05,
+                suspect_id: "2",
+                match_confidence: 0.85 + Math.sin(currentTime * 2) * 0.1,
+                is_suspect: true,
+                name: '순대국',
+                age: 54,
+                gender: 'Female',
+                risk_level: 'low',
+                is_criminal: false,
+                criminal_record: ['새치기 23회'],
+                suspect_category: 'civilian',
+                danger_level: 'LOW'
+            });
+            
+            // 얼굴 2: 일반인 (하니짱 - suspect_id: "3")
+            const face2X1 = videoWidth * (0.6 + Math.cos(currentTime * 1.5) * 0.15);
+            const face2Y1 = videoHeight * (0.5 + Math.sin(currentTime * 1.5) * 0.1);
+            const face2X2 = face2X1 + videoWidth * 0.1;
+            const face2Y2 = face2Y1 + videoHeight * 0.14;
+            
+            simulatedFaces.push({
+                bbox: [face2X1, face2Y1, face2X2, face2Y2],
+                confidence: 0.82 + Math.cos(currentTime * 2.5) * 0.08,
+                suspect_id: "3",
+                match_confidence: 0.78 + Math.cos(currentTime * 1.8) * 0.12,
+                is_suspect: true,
+                name: '하니짱',
+                age: 28,
+                gender: 'Male',
+                risk_level: 'low',
+                is_criminal: false,
+                criminal_record: ['골목길 무단횡단'],
+                suspect_category: 'civilian',
+                danger_level: 'LOW'
+            });
+            
+            // 선택된 용의자가 범죄자인 경우 범죄자 얼굴 추가 (황윤하 - suspect_id: "1")
+            if (selectedSuspect && selectedSuspect.isThief) {
+                const criminalX1 = videoWidth * (0.4 + Math.sin(currentTime * 2.2) * 0.2);
+                const criminalY1 = videoHeight * (0.2 + Math.cos(currentTime * 1.8) * 0.08);
+                const criminalX2 = criminalX1 + videoWidth * 0.13;
+                const criminalY2 = criminalY1 + videoHeight * 0.18;
+                
+                simulatedFaces.push({
+                    bbox: [criminalX1, criminalY1, criminalX2, criminalY2],
+                    confidence: 0.91 + Math.sin(currentTime * 4) * 0.06,
+                    suspect_id: "1",
+                    match_confidence: 0.89 + Math.sin(currentTime * 3.5) * 0.08,
+                    is_suspect: true,
+                    name: selectedSuspect.name, // "황윤하"
+                    age: 37,
+                    gender: 'Female',
+                    risk_level: 'high',
+                    is_criminal: true,
+                    criminal_record: ['절도 5회'],
+                    suspect_category: 'criminal',
+                    danger_level: 'HIGH'
+                });
+            } else {
+                // 일반인인 경우 추가 일반인 얼굴 (이지선 - suspect_id: "4")
+                const face3X1 = videoWidth * (0.2 + Math.sin(currentTime * 1.2) * 0.1);
+                const face3Y1 = videoHeight * (0.7 + Math.cos(currentTime * 0.8) * 0.05);
+                const face3X2 = face3X1 + videoWidth * 0.09;
+                const face3Y2 = face3Y1 + videoHeight * 0.12;
+                
+                simulatedFaces.push({
+                    bbox: [face3X1, face3Y1, face3X2, face3Y2],
+                    confidence: 0.79 + Math.cos(currentTime * 1.5) * 0.07,
+                    suspect_id: "4",
+                    match_confidence: 0.81 + Math.cos(currentTime * 2.3) * 0.09,
+                    is_suspect: true,
+                    name: '이지선',
+                    age: 39,
+                    gender: 'Female',
+                    risk_level: 'low',
+                    is_criminal: false,
+                    criminal_record: ['밥도둑'],
+                    suspect_category: 'civilian',
+                    danger_level: 'LOW'
+                });
+            }
+            
+            // 실제 AI 서버 응답 형식 시뮬레이션
+            const simulatedResult = {
+                success: true,
+                results: {
+                    faces: simulatedFaces, // InsightFace 결과 형식
+                    total_faces: simulatedFaces.length,
+                    suspect_faces: simulatedFaces.filter(f => f.is_criminal).length
+                },
+                processing_time: Math.max(...simulatedFaces.map(f => Math.random() * 0.1 + 0.05)),
+                timestamp: new Date().toISOString()
+            };
+            
+            // 실제 AI 모델 결과 처리와 동일하게 처리
+            processDetectionResult(simulatedResult);
+            
+            // 범죄자가 감지된 경우 알럿 발생
+            const criminalDetected = simulatedFaces.some(face => 
+                face.suspect_match && face.suspect_match.is_criminal && face.suspect_match.confidence > 80
+            );
+            
+            if (criminalDetected) {
+                const criminalFace = simulatedFaces.find(face => face.suspect_match.is_criminal);
+                if (criminalFace && !document.querySelector('.detection-info')) {
+                    triggerSuspectAlert();
+                }
+            } else {
+                // 일반인만 감지된 경우
+                const detectedNames = simulatedFaces.map(face => face.suspect_match.name).join(', ');
+                updateDetectionInfo(`감지된 인원: ${detectedNames} - 모두 안전 (일반인)`, false);
+            }
+        }
+
+        // 용의자 감지 얼럿 발생
+        function triggerSuspectAlert() {
+            // 선택된 용의자가 절도범인 경우에만 얼럿 발생
+            if (!selectedSuspect || !selectedSuspect.isThief) {
+                // 일반인인 경우 - 감지되지 않음
+                updateDetectionInfo(`${selectedSuspect.name} 감지됨 - 위험 없음 (일반인)`, false);
+                return;
+            }
+
+            // 절도범 감지 - 시각적 얼럿
+            mainVideo.classList.add('alert-border');
+            
+            // 절도범 상세 정보
+            const suspectDetails = getSuspectDetails(selectedSuspect.id);
+            
+            // 텍스트 얼럿 - 감지 정보 업데이트
+            const alertHtml = `
+                <div class="detection-info min-h-96 max-h-screen overflow-auto p-6 rounded-lg mb-4">
+                    <div class="flex items-center mb-3">
+                        <svg class="w-6 h-6 text-red-500 mr-2 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                        <h4 class="text-red-700 font-bold text-lg">!! 절도범 감지 !!</h4>
+                    </div>
+                    
+                    <div class="info-grid">
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">이름:</span>
+                            <span class="col-span-2 text-gray-900">${suspectDetails.name}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">나이:</span>
+                            <span class="col-span-2 text-gray-900">${suspectDetails.age}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">특징:</span>
+                            <span class="col-span-2 text-gray-900">${suspectDetails.features}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">전과:</span>
+                            <span class="col-span-2 text-red-600 font-medium">${suspectDetails.criminal_record}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">신뢰도:</span>
+                            <span class="col-span-2 text-green-600 font-bold">${suspectDetails.confidence}%</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <span class="font-semibold text-gray-700">감지시간:</span>
+                            <span class="col-span-2 text-gray-900">${new Date().toLocaleTimeString()}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 flex flex-wrap gap-3 justify-center">
+                        <button class="bg-red-500 text-white px-6 py-3 rounded-lg text-sm hover:bg-red-600 transition-colors shadow-md">
+                             긴급신고
+                        </button>
+                        <button class="bg-blue-500 text-white px-6 py-3 rounded-lg text-sm hover:bg-blue-600 transition-colors shadow-md">
+                             상세보기
+                        </button>
+                        <button class="bg-yellow-500 text-white px-6 py-3 rounded-lg text-sm hover:bg-yellow-600 transition-colors shadow-md">
+                             119 신고
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            detectionInfo.innerHTML = alertHtml;
+            
+            // 오디오 알림 (선택사항)
+            playAlertSound();
+            
+            updateLastUpdateTime();
+        }
+
+        // 실제 용의자 데이터베이스에서 정보 가져오기
+        async function getSuspectDetails(suspectId) {
+            try {
+                // 실제 API에서 용의자 정보 조회
+                const response = await fetch(`${API_BASE_URL}/api/suspect/${suspectId}`);
+                if (response.ok) {
+                    const suspectData = await response.json();
+                    return suspectData;
+                }
+            } catch (error) {
+                console.warn('실제 용의자 데이터 로드 실패, 로컬 데이터 사용:', error);
+            }
+            
+            // 폴백: 실제 suspect_profiles.json 기반 로컬 데이터
+            const realSuspects = {
+                '1': {
+                    name: '황윤하',
+                    age: '37세 여성',
+                    features: '갈색 머리, 앞머리',
+                    occupation: '백수',
+                    criminal_record: ['절도 5회'],
+                    risk_level: 'high',
+                    is_criminal: true,
+                    folder_name: 'criminal',
+                    confidence: '94.7'
+                },
+                '2': {
+                    name: '순대국',
+                    age: '54세 여성',
+                    features: '검은색 머리, 중년 여성 스타일',
+                    occupation: '쉐프',
+                    criminal_record: ['새치기 23회'],
+                    risk_level: 'low',
+                    is_criminal: false,
+                    folder_name: 'normal03',
+                    confidence: '88.2'
+                },
+                '3': {
+                    name: '하니짱',
+                    age: '28세 남성',
+                    features: '검은색 머리, 짧은 머리',
+                    occupation: '간호사',
+                    criminal_record: ['골목길 무단횡단'],
+                    risk_level: 'low',
+                    is_criminal: false,
+                    folder_name: 'normal01',
+                    confidence: '91.5'
+                },
+                '4': {
+                    name: '이지선',
+                    age: '39세 여성',
+                    features: '검은색 머리, 흑발 긴머리',
+                    occupation: '운동선수',
+                    criminal_record: ['밥도둑'],
+                    risk_level: 'low',
+                    is_criminal: false,
+                    folder_name: 'normal02',
+                    confidence: '87.9'
+                }
+            };
+            
+            return realSuspects[suspectId] || realSuspects['1'];
+        }
+
+        // 용의자 감지 얼럿 제거
+        function clearSuspectAlert() {
+            // 시각적 얼럿 제거
+            mainVideo.classList.remove('alert-border');
+            
+            // 텍스트 초기화
+            updateDetectionInfo('감지 필터가 비활성화되었습니다.', false);
+            
+            updateLastUpdateTime();
+        }
+        
+        // ==========================================
+        // AI 모델 기반 알림 처리 함수들
+        // ==========================================
+        
+        function handleEmergencyAlert() {
+            // 긴급신고 처리
+            console.log('🚨 긴급신고 버튼 클릭됨');
+            alert('🚨 긴급신고가 접수되었습니다!\n경찰서와 보안팀에 즉시 알림이 전송됩니다.');
+            
+            // 실제 구현에서는 여기에서 서버로 긴급신고 API 호출
+            // await fetch('/api/emergency_alert', { method: 'POST', ... })
+        }
+        
+        function showSuspectDetails(suspectId) {
+            // 용의자 상세정보 표시
+            console.log('📋 용의자 상세정보 요청:', suspectId);
+            alert(`📋 용의자 ID ${suspectId}의 상세 정보를 조회합니다.`);
+            
+            // 실제 구현에서는 용의자 상세 정보 모달 표시
+        }
+        
+        function call119() {
+            // 119 신고
+            console.log('📞 119 신고 요청');
+            if (confirm('📞 119에 신고하시겠습니까?')) {
+                alert('119 신고가 접수되었습니다.');
+                // 실제로는 119 신고 시스템 연동
+            }
+        }
+        
+        function recordEvidence() {
+            // 증거 영상 저장
+            console.log('📹 증거 저장 요청');
+            alert('📹 현재 영상이 증거로 저장되었습니다.\n파일명: evidence_' + new Date().getTime() + '.mp4');
+            
+            // 실제 구현에서는 비디오 클립 저장 API 호출
+        }
+        
+        // 브라우저 알림 권한 요청
+        function requestNotificationPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().then(permission => {
+                    console.log('알림 권한:', permission);
+                });
+            }
+        }
+
+        // 감지 정보 업데이트
+        function updateDetectionInfo(message, isAlert = false) {
+            const className = isAlert ? 'detection-info p-3 rounded-lg' : 'text-sm text-gray-500 text-center py-4';
+            detectionInfo.innerHTML = `
+                <div class="${className}">
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        // 마지막 업데이트 시간 갱신
+        function updateLastUpdateTime() {
+            const now = new Date();
+            if (!lastUpdate) {
+                console.warn('lastUpdate 요소가 아직 초기화되지 않았습니다.');
+                return;
+            }
+            lastUpdate.textContent = now.toLocaleTimeString();
+        }
+
+        // 알림음 재생 (간단한 비프음)
+        function playAlertSound() {
+            try {
+                // Web Audio API를 사용한 간단한 경고음
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800; // 800Hz 톤
+                oscillator.type = 'square';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+                
+            } catch (error) {
+                console.log('오디오 재생 실패:', error);
+            }
+        }
+
+        // 주기적으로 시간 업데이트
+        setInterval(updateLastUpdateTime, 30000); // 30초마다 업데이트
+
+        // 드래그 앤 드롭 지원
+        const uploadContainer = document.querySelector('.upload-container');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, unhighlight, false);
+        });
+        
+        uploadContainer.addEventListener('drop', handleDrop, false);
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        function highlight(e) {
+            uploadContainer.classList.add('border-blue-500', 'bg-blue-50');
+        }
+        
+        function unhighlight(e) {
+            uploadContainer.classList.remove('border-blue-500', 'bg-blue-50');
+        }
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('video/')) {
+                    videoFile.files = files;
+                    videoFile.dispatchEvent(new Event('change'));
+                }
+            }
+        }
+
+        // ==========================================
+        // 디버깅 및 테스트 기능 이벤트 리스너
+        // ==========================================
+        
+        // 디버깅 모드 토글
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 DOMContentLoaded - 페이지 초기화 시작');
+            
+            // DOM 요소 초기화
+            if (!initializeDOMElements()) {
+                console.error('❌ DOM 요소 초기화 실패');
+                return;
+            }
+            
+            // 나머지 DOM 요소들도 초기화
+            mainVideo = document.getElementById('mainVideo');
+            videoSource = document.getElementById('videoSource');
+            detectionFilter = document.getElementById('detectionFilter');
+            detectionInfo = document.getElementById('detectionInfo');
+            lastUpdate = document.getElementById('lastUpdate');
+            suspectCards = document.querySelectorAll('.suspect-card');
+            selectedSuspectInfo = document.getElementById('selectedSuspectInfo');
+            selectedSuspectName = document.getElementById('selectedSuspectName');
+            proceedToDashboard = document.getElementById('proceedToDashboard');
+            
+            // 이벤트 리스너 등록
+            setupFileUploadEvents();
+            setupOtherEvents();
+            
+            const debugModeToggle = document.getElementById('debugMode');
+            const testModelBtn = document.getElementById('testModelBtn');
+            const testFrameBtn = document.getElementById('testFrameBtn');
+            const forceDetectionBtn = document.getElementById('forceDetectionBtn');
+            
+            if (debugModeToggle) {
+                debugModeToggle.addEventListener('change', toggleDebugMode);
+            }
+            
+            console.log('✅ DOM 초기화 완료');
+            
+            // 모델 연결 테스트
+            if (testModelBtn) {
+                testModelBtn.addEventListener('click', async function() {
+                    this.disabled = true;
+                    this.textContent = '테스트 중...';
+                    
+                    try {
+                        addDebugLog('모델 연결 테스트 시작', 'info');
+                        const serverStatus = await checkServerStatus();
+                        
+                        if (serverStatus) {
+                            addDebugLog(`✅ 서버 연결 성공: ${JSON.stringify(serverStatus)}`, 'info');
+                            this.textContent = '✅ 연결 성공';
+                            this.className = 'w-full bg-green-600 text-white py-2 px-3 rounded text-sm';
+                        } else {
+                            addDebugLog('❌ 서버 연결 실패', 'error');
+                            this.textContent = '❌ 연결 실패';
+                            this.className = 'w-full bg-red-600 text-white py-2 px-3 rounded text-sm';
+                        }
+                    } catch (error) {
+                        addDebugLog(`❌ 테스트 오류: ${error.message}`, 'error');
+                        this.textContent = '❌ 테스트 오류';
+                        this.className = 'w-full bg-red-600 text-white py-2 px-3 rounded text-sm';
+                    }
+                    
+                    setTimeout(() => {
+                        this.disabled = false;
+                        this.textContent = '🧪 모델 연결 테스트';
+                        this.className = 'w-full bg-green-600 text-white py-2 px-3 rounded text-sm hover:bg-green-700 transition-colors';
+                    }, 3000);
+                });
+            }
+            
+            // 현재 프레임 분석
+            if (testFrameBtn) {
+                testFrameBtn.addEventListener('click', async function() {
+                    if (!mainVideo || mainVideo.paused) {
+                        addDebugLog('비디오가 재생 중이 아닙니다', 'warning');
+                        return;
+                    }
+                    
+                    this.disabled = true;
+                    this.textContent = '분석 중...';
+                    
+                    try {
+                        const frameData = captureVideoFrame();
+                        if (frameData) {
+                            addDebugLog('단일 프레임 분석 시작', 'info');
+                            const result = await detectFaceInFrame(frameData);
+                            if (result) {
+                                addDebugLog(`분석 완료: ${JSON.stringify(result)}`, 'info');
+                                processDetectionResult(result);
+                            }
+                        }
+                    } catch (error) {
+                        addDebugLog(`프레임 분석 오류: ${error.message}`, 'error');
+                    }
+                    
+                    setTimeout(() => {
+                        this.disabled = false;
+                        this.textContent = '📸 현재 프레임 분석';
+                    }, 2000);
+                });
+            }
+            
+            // 강제 감지 실행
+            if (forceDetectionBtn) {
+                forceDetectionBtn.addEventListener('click', async function() {
+                    if (!mainVideo || mainVideo.paused) {
+                        addDebugLog('비디오가 재생 중이 아닙니다', 'warning');
+                        return;
+                    }
+                    
+                    addDebugLog('강제 단일 프레임 감지 실행', 'info');
+                    
+                    try {
+                        const frameData = captureVideoFrame();
+                        if (frameData) {
+                            const result = await detectFaceInFrame(frameData);
+                            if (result && result.success) {
+                                addDebugLog(`강제 감지 완료: ${result.results?.faces?.length || 0}개 얼굴`, 'info');
+                                processDetectionResult(result);
+                            } else {
+                                addDebugLog('강제 감지 실패: AI 서버 응답 없음', 'error');
+                            }
+                        }
+                    } catch (error) {
+                        addDebugLog(`강제 감지 오류: ${error.message}`, 'error');
+                    }
+                });
+            }
+        });
+        
+        // 초기화
+        async function initializeApp() {
+            updateLastUpdateTime();
+            
+            // 브라우저 알림 권한 요청
+            requestNotificationPermission();
+            
+            // 서버 상태 확인 - AI 모델 우선 사용
+            console.log('🔍 AI 모델 서버 상태 확인 중...');
+            const serverStatus = await checkServerStatus();
+            
+            if (serverStatus) {
+                console.log('🤖 AI 서버 연결됨:', serverStatus);
+                
+                // 시스템 상태 업데이트
+                const aiEngineStatus = document.querySelector('[data-status="ai-engine"]');
+                const dbStatus = document.querySelector('[data-status="database"]');
+                
+                if (aiEngineStatus) {
+                    if (serverStatus.models && serverStatus.models.face_detector && serverStatus.models.face_recognizer) {
+                        aiEngineStatus.textContent = '✅ RetinaFace + ArcFace 준비됨';
+                        aiEngineStatus.className = 'text-sm font-medium text-green-600';
+                    } else {
+                        aiEngineStatus.textContent = '⚠️ AI 모델 로딩 중...';
+                        aiEngineStatus.className = 'text-sm font-medium text-yellow-600';
+                    }
+                }
+                
+                if (dbStatus) {
+                    if (serverStatus.database && serverStatus.database.embeddings_loaded) {
+                        dbStatus.textContent = `✅ 연결됨 (${serverStatus.database.suspects_count}명)`;
+                        dbStatus.className = 'text-sm font-medium text-green-600';
+                    } else {
+                        dbStatus.textContent = '⚠️ 데이터베이스 로딩 중...';
+                        dbStatus.className = 'text-sm font-medium text-yellow-600';
+                    }
+                }
+                
+                // GPU 정보 표시
+                if (serverStatus.gpu && serverStatus.gpu.available) {
+                    console.log(`🚀 GPU 가속 활성화: ${serverStatus.gpu.count}개 GPU 사용`);
+                } else {
+                    console.log('🔧 CPU 모드로 실행 중');
+                }
+                
+            } else {
+                console.log('🔧 AI 서버 연결 실패');
+                
+                // 오프라인 상태 표시
+                const aiEngineStatus = document.querySelector('[data-status="ai-engine"]');
+                const dbStatus = document.querySelector('[data-status="database"]');
+                
+                if (aiEngineStatus) {
+                    aiEngineStatus.textContent = '❌ AI 서버 연결 실패';
+                    aiEngineStatus.className = 'text-sm font-medium text-red-600';
+                }
+                
+                if (dbStatus) {
+                    dbStatus.textContent = '❌ 데이터베이스 연결 실패';
+                    dbStatus.className = 'text-sm font-medium text-red-600';
+                }
+            }
+        }
+        
+        // 앱 초기화 실행
+        initializeApp();
+    </script>
+</body>
+</html>
+

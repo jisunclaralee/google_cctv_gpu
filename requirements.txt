@@ -1,0 +1,65 @@
+# Python Version Requirement
+# python>=3.12.0
+
+# System Requirements (Windows)
+# Microsoft Visual C++ Build Tools 2019 or later required for compilation
+# Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+# ===== PyTorch GPU Environment =====
+# CUDA 12.1 compatible PyTorch (install separately)
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# ===== Web Framework =====
+Flask==3.1.2
+flask-cors==6.0.1
+Werkzeug==3.1.3
+
+# ===== Computer Vision =====
+opencv-python==4.12.0.88
+pillow==12.0.0
+
+# ===== Numerical Computing =====
+numpy==2.2.6
+scipy==1.16.3
+
+# ===== AI Models - InsightFace (RetinaFace + ArcFace) =====
+insightface==0.7.3
+onnxruntime-gpu>=1.16.0  # GPU accelerated ONNX Runtime
+onnx==1.19.1
+
+# ===== Face Recognition Utilities =====
+face-recognition>=1.3.0
+dlib>=19.24.0
+
+# ===== Machine Learning =====
+scikit-learn==1.7.2
+scikit-image==0.25.2
+
+# ===== HTTP & API =====
+requests==2.32.5
+
+# ===== Utilities =====
+protobuf==6.33.1
+easydict==1.13
+
+# ===== Data Analysis (Optional) =====
+matplotlib>=3.7.0
+pandas>=2.0.0
+
+# ===== Development & Testing =====
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+
+# ===== Removed Dependencies =====
+# bentoml==1.4.29  # Removed for simplified architecture
+# flasgger==0.9.7.1  # Removed - using simple JSON API
+# albumentations==2.0.8  # Removed - not essential for core functionality
+click==8.3.1
+PyYAML==6.0.3
+Jinja2==3.1.6
+itsdangerous==2.2.0
+MarkupSafe==3.0.2

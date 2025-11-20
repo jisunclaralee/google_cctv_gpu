@@ -1,0 +1,207 @@
+{
+  "database_info": {
+    "created_date": "2024-11-14",
+    "version": "1.0",
+    "total_suspects": 4,
+    "description": "CCTV 용의자 식별 시스템 - 팀원 얼굴 데이터베이스"
+  },
+  "suspects": [
+    {
+      "id": "1",
+      "name": "황윤하",
+      "name_en": "hwang_yunha",
+      "age": 37,
+      "gender": "female",
+      "role": "thief",
+      "criminal_record": [
+        "절도 5회"
+      ],
+      "risk_level": "high",
+      "features": {
+        "hair_color": "갈색",
+        "hair_style": "앞머리",
+        "facial_features": [
+          "앞머리",
+          "여성적 특징"
+        ],
+        "clothing_style": "캐주얼",
+        "special_notes": "절도범, 주요 타겟 인물"
+      },
+      "occupation": "백수",
+      "photo_requirements": {
+        "front_angles": [
+          "front_1.jpg",
+          "front_2.jpg"
+        ],
+        "side_angles": [
+          "left_45_1.jpg",
+          "right_45_1.jpg"
+        ],
+        "top_down": [
+          "up_angle_1.jpg"
+        ],
+        "total_photos": 5
+      },
+      "folder_name": "criminal",
+      "is_criminal": true,
+      "is_target": true
+    },
+    {
+      "id": "2",
+      "name": "순대국",
+      "name_en": "sundaeguk",
+      "age": 54,
+      "gender": "female",
+      "role": "civilian",
+      "criminal_record": [
+        "새치기 23회"
+      ],
+      "risk_level": "low",
+      "features": {
+        "hair_color": "검은색",
+        "hair_style": "중년 여성 스타일",
+        "facial_features": [
+          "다듬지 않은 눈썹"
+        ],
+        "clothing_style": "요리사복",
+        "special_notes": "쉐프, 일반인"
+      },
+      "occupation": "쉐프",
+      "photo_requirements": {
+        "front_angles": [
+          "front_1.jpg",
+          "front_2.jpg"
+        ],
+        "side_angles": [
+          "left_45_1.jpg",
+          "right_45_1.jpg"
+        ],
+        "top_down": [
+          "up_angle_1.jpg"
+        ],
+        "total_photos": 5
+      },
+      "folder_name": "normal03",
+      "is_criminal": false,
+      "is_target": false
+    },
+    {
+      "id": "3",
+      "name": "하니짱",
+      "name_en": "hanijjang",
+      "age": 28,
+      "gender": "male",
+      "role": "civilian",
+      "criminal_record": [
+        "골목길 무단횡단"
+      ],
+      "risk_level": "low",
+      "features": {
+        "hair_color": "검은색",
+        "hair_style": "짧은 머리",
+        "facial_features": [
+          "젊은 남성",
+          "깔끔한 외모"
+        ],
+        "clothing_style": "간호사복",
+        "special_notes": "간호사, 일반인"
+      },
+      "occupation": "간호사",
+      "photo_requirements": {
+        "front_angles": [
+          "front_1.jpg",
+          "front_2.jpg"
+        ],
+        "side_angles": [
+          "left_45_1.jpg",
+          "right_45_1.jpg"
+        ],
+        "top_down": [
+          "up_angle_1.jpg"
+        ],
+        "total_photos": 5
+      },
+      "folder_name": "normal01",
+      "is_criminal": false,
+      "is_target": false
+    },
+    {
+      "id": "4",
+      "name": "이지선",
+      "name_en": "leejisun",
+      "age": 39,
+      "gender": "female",
+      "role": "civilian",
+      "criminal_record": [
+        "밥도둑"
+      ],
+      "risk_level": "low",
+      "features": {
+        "hair_color": "검은색",
+        "hair_style": "흑발 긴머리",
+        "facial_features": [
+          "긴 머리",
+          "운동선수 체형"
+        ],
+        "clothing_style": "스포츠웨어",
+        "special_notes": "운동선수, 일반인"
+      },
+      "occupation": "운동선수",
+      "photo_requirements": {
+        "front_angles": [
+          "front_1.jpg",
+          "front_2.jpg"
+        ],
+        "side_angles": [
+          "left_45_1.jpg",
+          "right_45_1.jpg"
+        ],
+        "top_down": [
+          "up_angle_1.jpg"
+        ],
+        "total_photos": 5
+      },
+      "is_target": false,
+      "folder_name": "normal02"
+    }
+  ],
+  "photo_collection_status": {
+    "criminal": {
+      "collected": 0,
+      "required": 5,
+      "status": "pending"
+    },
+    "normal03": {
+      "collected": 0,
+      "required": 5,
+      "status": "pending"
+    },
+    "normal01": {
+      "collected": 0,
+      "required": 5,
+      "status": "pending"
+    },
+    "normal02": {
+      "collected": 0,
+      "required": 5,
+      "status": "pending"
+    }
+  },
+  "ai_model_info": {
+    "face_detector": "RetinaFace",
+    "face_recognizer": "ArcFace",
+    "embedding_dimension": 512,
+    "similarity_threshold": 0.6,
+    "detection_confidence": 0.8
+  },
+  "system_notes": {
+    "primary_target": "황윤하 (절도범)",
+    "control_group": [
+      "순대국",
+      "하니짱",
+      "이지선"
+    ],
+    "collection_deadline": "프로젝트 완료 전",
+    "privacy_note": "팀 프로젝트 용도로만 사용, 완료 후 안전 삭제"
+  }
+}

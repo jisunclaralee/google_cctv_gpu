@@ -1,0 +1,9 @@
+{
+  "timestamp": "2025-11-18T13:18:00.620735",
+  "total_persons": 4,
+  "total_images": 40,
+  "successful_embeddings": 20,
+  "success_rate": "50.0%",
+  "embedding_model": "InsightFace-buffalo_l",
+  "embedding_dimension": 512
+}
